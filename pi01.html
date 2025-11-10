@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Agent_poornima oracle</title>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background:#dfba82; color:#222; height:100vh; overflow:hidden; }
+        .app-container { display:flex; height:100vh; }
+        .sidebar { width:240px; background:#f0e7d1; border-right:1px solid #e6e3dd; display:flex; flex-direction:column; }
+        .sidebar-header { padding:16px; border-bottom:1px solid #e6e3dd; }
+        .new-chat-btn { width:100%; padding:10px 16px; background:#faf8f5; border:1px solid #e6e3dd; border-radius:6px; font-size:14px; cursor:pointer; display:flex; gap:8px; align-items:center; }
+        .conversations-list { flex:1; overflow-y:auto; padding:8px; }
+        .conversation-item { padding:10px 12px; border-radius:6px; cursor:pointer; margin-bottom:8px; font-size:14px; color:#5a5a5a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .conversation-item.active { background:#333; color:#FfF5DC; font-weight:500; }
+        .main-content { flex:1; display:flex; flex-direction:column; background:#FfF5DC; position:relative; }
+        .header { padding:16px 24px; border-bottom:1px solid #e6e3dd; display:flex; justify-content:space-between; align-items:center; gap:12px; }
+        .header-title { font-size:16px; font-weight:600;}
+        .header-actions { display:flex; gap:8px; align-items:center; }
+        .header-btn { padding:8px 12px; background:#f5f3f0; border:1px solid #e6e3dd; border-radius:8px; cursor:pointer; font-size:14px; }
+        .chat-container { flex:1; overflow-y:auto; padding:24px 0; background:#FfF5DC; }
+        .message-wrapper { max-width:900px; margin:0 auto; width:100%; padding:0 24px; }
+        .message { margin-bottom:20px; display:flex; gap:12px; }
+        .message-icon { width:36px; height:36px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:14px; }
+        .user .message-icon { background:#d4a574; color:white; }
+        .assistant .message-icon { background:#e6e3dd; color:#8b6f4e; }
+        .message-content { flex:1; line-height:1.6;color:#000; font-size: 20px; }
+        .input-area { border-top:1px solid #e6e3dd; background:#333; padding:14px 0; }
+        .input-container { max-width:900px; margin:0 auto; padding:0 24px; }
+        .input-wrapper { position:relative; background:#f5f3f0; border:1px solid #e6e3dd; border-radius:12px; }
+        .message-input { width:100%; padding:12px 48px 12px 16px; background:transparent; border:none; font-size:20px; font-family:inherit; outline:none; max-height:200px; line-height:1.5; color:#2d2d2d; resize:none; }
+        .send-button { position:absolute; right:8px; bottom:8px; width:36px; height:36px; border-radius:8px; border:none; background:#d4a574; color:white; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+        .send-button:disabled { background:#e6e3dd; cursor:not-allowed; }
+        .typing-indicator { display:flex; align-items:center; gap:6px; padding:8px; }
+        .typing-dot { width:8px; height:8px; border-radius:50%; background:#d4a574; animation:typing 1.4s infinite; }
+        .typing-dot:nth-child(1){ animation-delay:-0.32s; } .typing-dot:nth-child(2){ animation-delay:-0.16s; }
+        @keyframes typing { 0%,80%,100%{ transform:scale(0.8); opacity:0.5 } 40%{ transform:scale(1); opacity:1 } }
+        .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:2000; }
+        .modal { background:#faf8f5; border-radius:12px; padding:22px; max-width:540px; width:92%; max-height:90vh; overflow-y:auto; }
+        .modal-title { font-size:18px; font-weight:700; margin-bottom:12px; }
+        .modal-input { width:100%; padding:10px; border:1px solid #e6e3dd; border-radius:6px; margin-bottom:12px; font-size:14px; }
+        .error-message { background:#fee; border:1px solid #fcc; color:#c33; padding:12px; border-radius:6px; margin-bottom:12px; font-size:14px; }
+        .message-content code { background:#f0ede8; padding:2px 6px; border-radius:4px; font-family:monospace; }
+        .message-content pre { background:#f0ede8; padding:12px; border-radius:8px; overflow-x:auto; margin-bottom:12px; }
+        .hidden { display:none; }
+        @media (max-width:768px){
+            .sidebar{ position:fixed; left:0; top:0; height:100vh; margin-left:-240px; }
+            .sidebar.open{ margin-left:0; }
+            .mobile-menu-btn{ display:flex; }
+            .header{ padding-left:64px; }
+            .message-wrapper, .input-container { padding:0 16px; }
+        }
+    </style>
+</head>
+<body>
+    <!-- API Setup Modal -->
+    <div id="apiModal" class="modal-overlay hidden">
+        <div class="modal">
+            <h2 class="modal-title">Setup Gemini API</h2>
+            <p style="margin-bottom:12px; color:#666; font-size:14px;">
+                set up a backend proxy for your API key.
+            </p>
+            <input type="text" id="apiEndpoint" class="modal-input" placeholder="Enter backend API endpoint, e.g. http://localhost:3001/api/chat" />
+            <div style="padding:10px; background:#f0ede8; border-radius:6px; margin-bottom:12px; font-size:13px;">
+                <strong>Note:</strong> Your backend should:
+                <ul style="margin-top:8px; margin-left:18px;">
+                    <li>Store API keys securely</li>
+                    <li>Proxy requests to Gemini (or chosen LLM)</li>
+                </ul>
+            </div>
+            <div style="display:flex; gap:8px; justify-content:flex-end;">
+                <button class="modal-btn" onclick="skipSetup()">Use Demo Mode</button>
+                <button class="modal-btn modal-btn-primary" onclick="saveApiEndpoint()">Save Endpoint</button>
+            </div>
+        </div>
+    </div>
+
+    <button class="mobile-menu-btn" onclick="toggleSidebar()" style="display:none; position:fixed; top:16px; left:16px; z-index:1000; width:40px; height:40px; border-radius:8px; border:1px solid #e6e3dd; background:#faf8f5;">
+        <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+    </button>
+
+    <div class="app-container">
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <button class="new-chat-btn" onclick="startNewChat()">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 4v8m-4-4h8"/></svg>
+                    New chat
+                </button>
+            </div>
+            <div class="conversations-list" id="conversationsList">
+                <div class="conversation-item active">Welcome </div>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <header class="header">
+                <h1 class="header-title" style="font-size: large;" >Poornima Oracle</h1>
+                <div class="header-actions">
+                    <button class="header-btn" onclick="showApiModal()">⚙️ Settings</button>
+                </div>
+            </header>
+
+            <div class="chat-container" id="chatContainer">
+                <div class="welcome-screen" id="welcomeScreen">
+                    <h1 style="font-size:25px; margin-bottom:7px; margin-left: 120px;">"Hey there! Got questions about PCE? You've officially come to the right place."</h1>
+                    <p style="color:#666; margin-bottom:12px; margin-left: 350px;margin-top: 300px;">Start a conversation or try one of these suggestions:</p>
+                    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-left: 150px;margin-top: 10px;">
+                        <div style="background:#fff; padding:10px 12px; border-radius:8px; border:1px solid #efeae6; cursor:pointer;" onclick="sendSuggestion('What is the anti-ragging policy?')">
+                            <strong>Learn Policy</strong><br/><small>What is the anti-ragging policy?</small>
+                        </div>
+                        <div style="background:#fff; padding:10px 12px; border-radius:8px; border:1px solid #efeae6; cursor:pointer;" onclick="sendSuggestion('What items are prohibited in hostel rooms?')">
+                            <strong>Hostel Rules</strong><br/><small>What items are prohibited in hostel rooms?</small>
+                        </div>
+                        <div style="background:#fff; padding:10px 12px; border-radius:8px; border:1px solid #efeae6; cursor:pointer;" onclick="sendSuggestion('Get some short one-liner random advice for students of PCE college?')">
+                            <strong>Get advice</strong><br/><small>Get some random advice for me</small>
+                        </div>
+                        <div style="background:#fff; padding:10px 12px; border-radius:8px; border:1px solid #efeae6; cursor:pointer;" onclick="sendSuggestion('Explain the SCOPE scholarship for online courses.')">
+                            <strong>Find Scholarships</strong><br/><small>Explain the SCOPE scholarship for online courses.</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="input-area">
+                <div class="input-container">
+                    <div class="input-wrapper">
+                        <textarea id="messageInput" class="message-input" placeholder="Type a message..." rows="1" onkeydown="handleKeyPress(event)" oninput="adjustTextareaHeight(this)"></textarea>
+                        <button class="send-button" id="sendButton" onclick="sendMessage()" title="Send">
+                            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2L2 8l4 2 2 4 6-12z"/></svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // --- State ---
+        let chatStarted = false;
+        let messageCount = 0;
+        let conversationHistory = [];
+        // Default local endpoint if none saved
+        let apiEndpoint = localStorage.getItem('geminiApiEndpoint') || 'http://localhost:3001/api/chat';
+        let isLoading = false;
+
+        // --- Init ---
+        window.addEventListener('load', () => {
+            if (!localStorage.getItem('geminiApiEndpoint')) {
+                document.getElementById('apiModal').classList.remove('hidden');
+            } else {
+                document.getElementById('apiModal').classList.add('hidden');
+            }
+            document.getElementById('messageInput').focus();
+        });
+
+        function showApiModal() {
+            document.getElementById('apiModal').classList.remove('hidden');
+            document.getElementById('apiEndpoint').value = apiEndpoint;
+        }
+
+        function saveApiEndpoint() {
+            const endpoint = document.getElementById('apiEndpoint').value.trim();
+            if (endpoint) {
+                apiEndpoint = endpoint;
+                localStorage.setItem('geminiApiEndpoint', endpoint);
+                document.getElementById('apiModal').classList.add('hidden');
+            }
+        }
+
+        function skipSetup() {
+            document.getElementById('apiModal').classList.add('hidden');
+        }
+
+
+        function sendSuggestion(text) {
+            document.getElementById('messageInput').value = text;
+            sendMessage();
+        }
+
+        // --- Send message ---
+        async function sendMessage() {
+            if (isLoading) return;
+
+            const input = document.getElementById('messageInput');
+            const message = input.value.trim();
+            if (!message) return;
+
+            if (!chatStarted) {
+                document.getElementById('chatContainer').innerHTML = '';
+                chatStarted = true;
+            }
+
+            const chatContainer = document.getElementById('chatContainer');
+            messageCount++;
+            isLoading = true;
+            document.getElementById('sendButton').disabled = true;
+
+            // push user to history (ensure string)
+            conversationHistory.push({ role: 'user', content: String(message) });
+
+            // Add user message to UI
+            const userMessage = `
+                <div class="message-wrapper">
+                    <div class="message user">
+                        <div class="message-icon">U</div>
+                        <div class="message-content">
+                            <p>${escapeHtml(message)}</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            chatContainer.innerHTML += userMessage;
+
+            // Clear input
+            input.value = '';
+            adjustTextareaHeight(input);
+
+            // Add typing indicator
+            const typingId = `typing-${messageCount}`;
+            const typingIndicator = `
+                <div class="message-wrapper" id="${typingId}">
+                    <div class="message assistant">
+                        <div class="message-icon">G</div>
+                        <div class="typing-indicator">
+                            <div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            chatContainer.innerHTML += typingIndicator;
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+
+            try {
+                let responseText;
+
+                if (apiEndpoint) {
+                    responseText = await callGeminiAPI(message);
+                } else {
+                    // fallback demo
+                    await new Promise(r => setTimeout(r, 900));
+                    responseText = getDemoResponse(message);
+                }
+
+                // Remove typing
+                document.getElementById(typingId)?.remove();
+
+                // Save assistant reply as string
+                conversationHistory.push({ role: 'assistant', content: String(responseText) });
+
+                // Render assistant reply
+                const aiMessage = `
+                    <div class="message-wrapper">
+                        <div class="message assistant">
+                            <div class="message-icon">G</div>
+                            <div class="message-content">
+                                ${formatMessage(responseText)}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                chatContainer.innerHTML += aiMessage;
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+
+            } catch (err) {
+                // Remove typing indicator
+                document.getElementById(typingId)?.remove();
+
+                const errorMessage = `
+                    <div class="message-wrapper">
+                        <div class="error-message">Error: ${escapeHtml(err.message || 'Failed to get response. Please check your API configuration.')}</div>
+                    </div>
+                `;
+                chatContainer.innerHTML += errorMessage;
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+                console.error('sendMessage error:', err);
+            } finally {
+                isLoading = false;
+                document.getElementById('sendButton').disabled = false;
+            }
+        }
+
+        // --- Call backend (expects { answer: "..." } from server) ---
+        async function callGeminiAPI(message) {
+            if (!apiEndpoint) throw new Error('API endpoint not configured.');
+
+            const resp = await fetch(apiEndpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: message, history: conversationHistory })
+            });
+
+            if (!resp.ok) {
+                const txt = await resp.text().catch(() => null);
+                const errMsg = txt || `Request failed with status ${resp.status}`;
+                throw new Error(errMsg);
+            }
+
+            const data = await resp.json();
+            console.log('DEBUG backend payload:', data);
+
+            if (data && (data.answer !== undefined && data.answer !== null)) {
+                return String(data.answer);
+            }
+            if (data && (data.response !== undefined && data.response !== null)) {
+                return String(data.response);
+            }
+            if (data && (data.text !== undefined && data.text !== null)) {
+                return String(data.text);
+            }
+            if (data && Array.isArray(data.choices) && data.choices[0]) {
+                const c = data.choices[0];
+                if (c.message && c.message.content) return String(c.message.content);
+                if (c.text) return String(c.text);
+            }
+            return JSON.stringify(data);
+        }
+
+        // safe formatMessage
+        function formatMessage(text) {
+            if (text === null || text === undefined) return '<p><em>(no response)</em></p>';
+            const s = String(text);
+            return '<p>' + s
+                .replace(/\r\n/g, '\n')
+                .replace(/\n\n/g, '</p><p>')
+                .replace(/\n/g, '<br/>')
+                .replace(/`([^`]+)`/g, '<code>$1</code>')
+                .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*([^*]+)\*/g, '<em>$1</em>') + '</p>';
+        }
+
+        // safe escapeHtml
+        function escapeHtml(text) {
+            if (text === null || text === undefined) return '';
+            const s = String(text);
+            const map = { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;' };
+            return s.replace(/[&<>"']/g, m => map[m]);
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+            }
+        }
+
+        function adjustTextareaHeight(textarea) {
+            textarea.style.height = 'auto';
+            textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
+        }
+    </script>
+</body>
+</html>
