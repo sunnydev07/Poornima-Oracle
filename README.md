@@ -1,6 +1,9 @@
 # Poornima-Oracle
-RAG Based AI-Agent that gives answers to any query related to poornima colleges(PU, PCE, PIET)
+RAG Based AI-Agent that gives answers to any query related to poornima colleges(PU, PCE, PIET).
+
+
 Installation:
+
 1-> npm init -y
 2-> npm insatll
 3-> create .env file and make these keys:
