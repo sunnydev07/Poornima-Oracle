@@ -1,14 +1,15 @@
 <!DOCTYPE html>
 <html lang="en" class="dark">
+
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
     <meta name="theme-color" content="#09090b" />
     <title>Poornima Oracle | AI Agent</title>
-    
+
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    
+
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
 
@@ -49,10 +50,23 @@
     </script>
 
     <style>
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #52525b; }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #3f3f46;
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #52525b;
+        }
 
         .glass {
             background: rgba(24, 24, 27, 0.6);
@@ -60,7 +74,7 @@
             -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.1);
         }
-        
+
         .glass-input {
             background: rgba(9, 9, 11, 0.8);
             backdrop-filter: blur(12px);
@@ -74,12 +88,28 @@
             background: #22d3ee;
             animation: typing 1.4s infinite;
         }
-        .typing-dot:nth-child(1) { animation-delay: -0.32s; }
-        .typing-dot:nth-child(2) { animation-delay: -0.16s; }
-        
+
+        .typing-dot:nth-child(1) {
+            animation-delay: -0.32s;
+        }
+
+        .typing-dot:nth-child(2) {
+            animation-delay: -0.16s;
+        }
+
         @keyframes typing {
-            0%, 80%, 100% { transform: scale(0); opacity: 0.5; }
-            40% { transform: scale(1); opacity: 1; }
+
+            0%,
+            80%,
+            100% {
+                transform: scale(0);
+                opacity: 0.5;
+            }
+
+            40% {
+                transform: scale(1);
+                opacity: 1;
+            }
         }
 
         #click-spark-canvas {
@@ -92,27 +122,48 @@
             z-index: 9999;
         }
 
-        .safe-pb { padding-bottom: env(safe-area-inset-bottom); }
-        
+        .safe-pb {
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+
         /* Sidebar Transitions */
-        .sidebar-transition { transition: width 0.3s ease-in-out, transform 0.3s ease-in-out; }
-        
+        .sidebar-transition {
+            transition: width 0.3s ease-in-out, transform 0.3s ease-in-out;
+        }
+
         /* Hide text when sidebar is collapsed */
-        .collapsed .sidebar-text { display: none; opacity: 0; }
-        .collapsed .sidebar-header-text { display: none; }
-        .collapsed .new-chat-text { display: none; }
-        
+        .collapsed .sidebar-text {
+            display: none;
+            opacity: 0;
+        }
+
+        .collapsed .sidebar-header-text {
+            display: none;
+        }
+
+        .collapsed .new-chat-text {
+            display: none;
+        }
+
         /* Center icons when collapsed */
-        .collapsed .sidebar-item { justify-content: center; padding: 12px; }
-        .collapsed .sidebar-icon { margin-right: 0; }
+        .collapsed .sidebar-item {
+            justify-content: center;
+            padding: 12px;
+        }
+
+        .collapsed .sidebar-icon {
+            margin-right: 0;
+        }
     </style>
 </head>
+
 <body class="bg-zinc-950 text-slate-200 font-sans overflow-hidden h-[100dvh] selection:bg-cyan-500/30 flex flex-col">
 
     <canvas id="click-spark-canvas"></canvas>
 
     <!-- API Setup Modal -->
-    <div id="apiModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center hidden transition-opacity duration-300 px-4">
+    <div id="apiModal"
+        class="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center hidden transition-opacity duration-300 px-4">
         <div class="glass bg-zinc-900/90 rounded-2xl p-6 max-w-md w-full shadow-2xl transform transition-all scale-100">
             <div class="flex items-center gap-3 mb-4">
                 <div class="p-2 bg-cyan-500/10 rounded-lg">
@@ -121,22 +172,29 @@
                 <h2 class="text-xl font-bold text-white">Setup API</h2>
             </div>
             <p class="text-zinc-400 text-sm mb-4">Configure your backend proxy endpoint.</p>
-            <input type="text" id="apiEndpoint" class="w-full glass-input px-4 py-3 rounded-xl text-white placeholder-zinc-600 focus:outline-none focus:border-cyan-500/50 transition-all mb-4 text-sm" placeholder="http://localhost:3001/api/chat" />
+            <input type="text" id="apiEndpoint"
+                class="w-full glass-input px-4 py-3 rounded-xl text-white placeholder-zinc-600 focus:outline-none focus:border-cyan-500/50 transition-all mb-4 text-sm"
+                placeholder="https://poornima-oracle.onrender.com/api/chat" />
             <div class="flex justify-end gap-3">
-                <button onclick="skipSetup()" class="px-4 py-2 text-sm text-zinc-400 hover:text-white transition-colors">Demo Mode</button>
-                <button onclick="saveApiEndpoint()" class="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-bold rounded-xl shadow-lg shadow-cyan-900/20 transition-all">Save</button>
+                <button onclick="skipSetup()"
+                    class="px-4 py-2 text-sm text-zinc-400 hover:text-white transition-colors">Demo Mode</button>
+                <button onclick="saveApiEndpoint()"
+                    class="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-bold rounded-xl shadow-lg shadow-cyan-900/20 transition-all">Save</button>
             </div>
         </div>
     </div>
 
     <!-- Mobile Sidebar Overlay with Heavy Blur -->
-    <div id="sidebarOverlay" class="fixed inset-0 bg-black/60 backdrop-blur-md z-[10] md:hidden hidden transition-all duration-300" onclick="closeMobileSidebar()"></div>
+    <div id="sidebarOverlay"
+        class="fixed inset-0 bg-black/60 backdrop-blur-md z-[10] md:hidden hidden transition-all duration-300"
+        onclick="closeMobileSidebar()"></div>
 
     <div class="flex h-full relative z-10 w-full">
-        
+
         <!-- Sidebar -->
-        <aside id="sidebar" class="sidebar-transition fixed md:relative z-[70] h-full w-[85%] max-w-[300px] md:w-72 -translate-x-full md:translate-x-0 bg-black/80 backdrop-blur-3xl border-r border-white/10 flex flex-col shadow-2xl md:shadow-none">
-            
+        <aside id="sidebar"
+            class="sidebar-transition fixed md:relative z-[70] h-full w-[85%] max-w-[300px] md:w-72 -translate-x-full md:translate-x-0 bg-black/80 backdrop-blur-3xl border-r border-white/10 flex flex-col shadow-2xl md:shadow-none">
+
             <!-- Sidebar Header -->
             <div class="p-4 border-b border-white/10 flex items-center justify-between pt-safe-top h-16">
                 <div class="flex items-center gap-3 overflow-hidden whitespace-nowrap">
@@ -147,29 +205,34 @@
                         History
                     </h2>
                 </div>
-                
+
                 <!-- Desktop Collapse Button -->
-                <button onclick="toggleSidebarDesktop()" class="hidden md:flex p-1.5 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition">
+                <button onclick="toggleSidebarDesktop()"
+                    class="hidden md:flex p-1.5 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition">
                     <i id="collapseIcon" data-lucide="chevron-left" class="w-5 h-5 transition-transform"></i>
                 </button>
 
                 <!-- Mobile Close Button -->
-                <button onclick="closeMobileSidebar()" class="md:hidden p-2 hover:bg-white/10 rounded-lg text-zinc-400 transition active:scale-95">
+                <button onclick="closeMobileSidebar()"
+                    class="md:hidden p-2 hover:bg-white/10 rounded-lg text-zinc-400 transition active:scale-95">
                     <i data-lucide="x" class="w-6 h-6"></i>
                 </button>
             </div>
 
             <!-- New Chat Button -->
             <div class="p-4 pb-2">
-                <button onclick="startNewChat()" class="sidebar-item w-full flex items-center gap-3 p-3.5 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/20 rounded-xl text-white transition-all group hover:shadow-[0_0_10px_rgba(255,255,255,0.1)] active:scale-95 touch-manipulation">
-                    <i data-lucide="plus" class="sidebar-icon w-5 h-5 text-cyan-400 group-hover:rotate-90 transition-transform shrink-0"></i>
+                <button onclick="startNewChat()"
+                    class="sidebar-item w-full flex items-center gap-3 p-3.5 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/20 rounded-xl text-white transition-all group hover:shadow-[0_0_10px_rgba(255,255,255,0.1)] active:scale-95 touch-manipulation">
+                    <i data-lucide="plus"
+                        class="sidebar-icon w-5 h-5 text-cyan-400 group-hover:rotate-90 transition-transform shrink-0"></i>
                     <span class="sidebar-text text-sm font-medium whitespace-nowrap">New Chat</span>
                 </button>
             </div>
 
             <!-- Conversations List -->
             <div class="flex-1 overflow-y-auto p-2 scrollbar-thin" id="conversationsList">
-                <div class="sidebar-item group flex items-center gap-3 p-3.5 rounded-xl cursor-pointer bg-zinc-800/60 border border-white/10 text-white shadow-[0_0_15px_rgba(255,255,255,0.05)] mb-2">
+                <div
+                    class="sidebar-item group flex items-center gap-3 p-3.5 rounded-xl cursor-pointer bg-zinc-800/60 border border-white/10 text-white shadow-[0_0_15px_rgba(255,255,255,0.05)] mb-2">
                     <i data-lucide="message-square" class="sidebar-icon w-4 h-4 text-cyan-400 shrink-0"></i>
                     <span class="sidebar-text text-sm truncate font-light">Welcome</span>
                 </div>
@@ -177,26 +240,31 @@
 
             <!-- Footer -->
             <div class="p-4 border-t border-white/10 text-center safe-pb overflow-hidden">
-                <p class="sidebar-text text-[10px] text-zinc-600 uppercase tracking-widest whitespace-nowrap">© 2025 Sunny Dev.</p>
+                <p class="sidebar-text text-[10px] text-zinc-600 uppercase tracking-widest whitespace-nowrap">© 2025
+                    Sunny Dev.</p>
             </div>
         </aside>
 
         <!-- Main Content -->
         <main class="flex-1 flex flex-col w-full relative bg-transparent overflow-hidden">
-            
+
             <!-- Header -->
-            <header class="h-16 border-b border-white/5 flex items-center justify-between px-4 md:px-8 bg-zinc-950/80 backdrop-blur-md z-30 sticky top-0">
+            <header
+                class="h-16 border-b border-white/5 flex items-center justify-between px-4 md:px-8 bg-zinc-950/80 backdrop-blur-md z-30 sticky top-0">
                 <div class="flex items-center gap-3">
                     <!-- Mobile Menu Toggle -->
-                    <button onclick="openMobileSidebar()" class="md:hidden p-2 text-zinc-300 bg-white/5 rounded-lg border border-white/10 active:bg-white/10 transition-colors">
+                    <button onclick="openMobileSidebar()"
+                        class="md:hidden p-2 text-zinc-300 bg-white/5 rounded-lg border border-white/10 active:bg-white/10 transition-colors">
                         <i data-lucide="menu" class="w-6 h-6"></i>
                     </button>
-                    
-                    <h1 class="text-lg md:text-2xl font-bold tracking-tighter bg-gradient-to-r from-white via-slate-300 to-gray-500 bg-clip-text text-transparent truncate">
+
+                    <h1
+                        class="text-lg md:text-2xl font-bold tracking-tighter bg-gradient-to-r from-white via-slate-300 to-gray-500 bg-clip-text text-transparent truncate">
                         Poornima Oracle
                     </h1>
                 </div>
-                <button onclick="showApiModal()" class="p-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition flex items-center gap-2 active:scale-95">
+                <button onclick="showApiModal()"
+                    class="p-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition flex items-center gap-2 active:scale-95">
                     <i data-lucide="settings" class="w-6 h-6"></i>
                 </button>
             </header>
@@ -209,10 +277,16 @@
             <!-- Input Area -->
             <div class="p-3 md:p-6 bg-gradient-to-t from-zinc-950 via-zinc-950 to-transparent z-20 safe-pb">
                 <div class="max-w-3xl mx-auto relative group">
-                    <div class="absolute -inset-1 bg-gradient-to-r from-cyan-500/20 via-purple-500/10 to-blue-500/20 rounded-2xl blur-md opacity-50 group-hover:opacity-75 transition-opacity duration-500 hidden md:block"></div>
+                    <div
+                        class="absolute -inset-1 bg-gradient-to-r from-cyan-500/20 via-purple-500/10 to-blue-500/20 rounded-2xl blur-md opacity-50 group-hover:opacity-75 transition-opacity duration-500 hidden md:block">
+                    </div>
                     <div class="glass-input rounded-2xl flex items-end p-1.5 md:p-2 relative z-10">
-                        <textarea id="messageInput" class="w-full bg-transparent border-none text-white placeholder-zinc-500 px-3 md:px-4 py-3 focus:ring-0 resize-none max-h-32 md:max-h-48 overflow-y-auto text-base" rows="1" placeholder="Ask here..." onkeydown="handleKeyPress(event)" oninput="adjustTextareaHeight(this)"></textarea>
-                        <button id="sendButton" onclick="sendMessage()" class="p-3 rounded-xl bg-white text-black hover:bg-zinc-200 transition-all active:scale-95 shadow-[0_0_15px_rgba(255,255,255,0.1)] mb-0.5 mr-0.5 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shrink-0">
+                        <textarea id="messageInput"
+                            class="w-full bg-transparent border-none text-white placeholder-zinc-500 px-3 md:px-4 py-3 focus:ring-0 resize-none max-h-32 md:max-h-48 overflow-y-auto text-base"
+                            rows="1" placeholder="Ask here..." onkeydown="handleKeyPress(event)"
+                            oninput="adjustTextareaHeight(this)"></textarea>
+                        <button id="sendButton" onclick="sendMessage()"
+                            class="p-3 rounded-xl bg-white text-black hover:bg-zinc-200 transition-all active:scale-95 shadow-[0_0_15px_rgba(255,255,255,0.1)] mb-0.5 mr-0.5 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shrink-0">
                             <i data-lucide="send" class="w-5 h-5"></i>
                         </button>
                     </div>
@@ -227,39 +301,64 @@
 
     <!-- Hidden Template for Welcome Screen -->
     <template id="welcomeTemplate">
-        <div id="welcomeScreen" class="h-full flex flex-col items-center justify-center max-w-4xl mx-auto animate-fade-in py-8">
-            <div class="w-20 h-20 md:w-24 md:h-24 rounded-full overflow-hidden border-2 border-white/10 mb-6 shadow-[0_0_30px_rgba(6,182,212,0.2)] shrink-0">
-                <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQm0aT7k5O09y2256AMvDppRfJq7pIeV9d0KA&s" alt="Oracle" class="w-full h-full object-cover">
+        <div id="welcomeScreen"
+            class="h-full flex flex-col items-center justify-center max-w-4xl mx-auto animate-fade-in py-8">
+            <div
+                class="w-20 h-20 md:w-24 md:h-24 rounded-full overflow-hidden border-2 border-white/10 mb-6 shadow-[0_0_30px_rgba(6,182,212,0.2)] shrink-0">
+                <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQm0aT7k5O09y2256AMvDppRfJq7pIeV9d0KA&s"
+                    alt="Oracle" class="w-full h-full object-cover">
             </div>
-            <h1 class="text-2xl md:text-5xl font-bold text-center mb-4 bg-gradient-to-r from-cyan-300 via-white to-cyan-300 bg-clip-text text-transparent drop-shadow-sm px-2">
+            <h1
+                class="text-2xl md:text-5xl font-bold text-center mb-4 bg-gradient-to-r from-cyan-300 via-white to-cyan-300 bg-clip-text text-transparent drop-shadow-sm px-2">
                 "Hey there! Got questions?"
             </h1>
             <p class="text-zinc-400 text-center mb-8 md:mb-12 max-w-lg text-base md:text-lg font-light px-4">
                 You've officially come to the right place. Ask me anything about campus life.
             </p>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 w-full max-w-3xl px-4">
-                <div onclick="sendSuggestion('What is the anti-ragging policy?')" class="glass p-4 rounded-xl cursor-pointer hover:bg-white/5 hover:border-cyan-500/30 transition-all group active:scale-98 touch-manipulation">
+                <div onclick="sendSuggestion('What is the anti-ragging policy?')"
+                    class="glass p-4 rounded-xl cursor-pointer hover:bg-white/5 hover:border-cyan-500/30 transition-all group active:scale-98 touch-manipulation">
                     <div class="flex items-start gap-3">
-                        <div class="p-2 bg-cyan-500/10 rounded-lg text-cyan-400 group-hover:text-cyan-300 shrink-0"><i data-lucide="shield" class="w-5 h-5"></i></div>
-                        <div><h3 class="font-semibold text-zinc-200 text-sm">Policy</h3><p class="text-xs text-zinc-500 mt-1">Anti-ragging rules?</p></div>
+                        <div class="p-2 bg-cyan-500/10 rounded-lg text-cyan-400 group-hover:text-cyan-300 shrink-0"><i
+                                data-lucide="shield" class="w-5 h-5"></i></div>
+                        <div>
+                            <h3 class="font-semibold text-zinc-200 text-sm">Policy</h3>
+                            <p class="text-xs text-zinc-500 mt-1">Anti-ragging rules?</p>
+                        </div>
                     </div>
                 </div>
-                <div onclick="sendSuggestion('What items are prohibited in hostel rooms?')" class="glass p-4 rounded-xl cursor-pointer hover:bg-white/5 hover:border-rose-500/30 transition-all group active:scale-98 touch-manipulation">
+                <div onclick="sendSuggestion('What items are prohibited in hostel rooms?')"
+                    class="glass p-4 rounded-xl cursor-pointer hover:bg-white/5 hover:border-rose-500/30 transition-all group active:scale-98 touch-manipulation">
                     <div class="flex items-start gap-3">
-                        <div class="p-2 bg-rose-500/10 rounded-lg text-rose-400 group-hover:text-rose-300 shrink-0"><i data-lucide="ban" class="w-5 h-5"></i></div>
-                        <div><h3 class="font-semibold text-zinc-200 text-sm">Hostel</h3><p class="text-xs text-zinc-500 mt-1">Prohibited items?</p></div>
+                        <div class="p-2 bg-rose-500/10 rounded-lg text-rose-400 group-hover:text-rose-300 shrink-0"><i
+                                data-lucide="ban" class="w-5 h-5"></i></div>
+                        <div>
+                            <h3 class="font-semibold text-zinc-200 text-sm">Hostel</h3>
+                            <p class="text-xs text-zinc-500 mt-1">Prohibited items?</p>
+                        </div>
                     </div>
                 </div>
-                <div onclick="sendSuggestion('Get some short one-liner random advice for students?')" class="glass p-4 rounded-xl cursor-pointer hover:bg-white/5 hover:border-amber-500/30 transition-all group active:scale-98 touch-manipulation">
+                <div onclick="sendSuggestion('Get some short one-liner random advice for students?')"
+                    class="glass p-4 rounded-xl cursor-pointer hover:bg-white/5 hover:border-amber-500/30 transition-all group active:scale-98 touch-manipulation">
                     <div class="flex items-start gap-3">
-                        <div class="p-2 bg-amber-500/10 rounded-lg text-amber-400 group-hover:text-amber-300 shrink-0"><i data-lucide="sparkles" class="w-5 h-5"></i></div>
-                        <div><h3 class="font-semibold text-zinc-200 text-sm">Advice</h3><p class="text-xs text-zinc-500 mt-1">Random wisdom</p></div>
+                        <div class="p-2 bg-amber-500/10 rounded-lg text-amber-400 group-hover:text-amber-300 shrink-0">
+                            <i data-lucide="sparkles" class="w-5 h-5"></i></div>
+                        <div>
+                            <h3 class="font-semibold text-zinc-200 text-sm">Advice</h3>
+                            <p class="text-xs text-zinc-500 mt-1">Random wisdom</p>
+                        </div>
                     </div>
                 </div>
-                <div onclick="sendSuggestion('Explain the SCOPE scholarship for online courses.')" class="glass p-4 rounded-xl cursor-pointer hover:bg-white/5 hover:border-emerald-500/30 transition-all group active:scale-98 touch-manipulation">
+                <div onclick="sendSuggestion('Explain the SCOPE scholarship for online courses.')"
+                    class="glass p-4 rounded-xl cursor-pointer hover:bg-white/5 hover:border-emerald-500/30 transition-all group active:scale-98 touch-manipulation">
                     <div class="flex items-start gap-3">
-                        <div class="p-2 bg-emerald-500/10 rounded-lg text-emerald-400 group-hover:text-emerald-300 shrink-0"><i data-lucide="graduation-cap" class="w-5 h-5"></i></div>
-                        <div><h3 class="font-semibold text-zinc-200 text-sm">Scholarship</h3><p class="text-xs text-zinc-500 mt-1">SCOPE details</p></div>
+                        <div
+                            class="p-2 bg-emerald-500/10 rounded-lg text-emerald-400 group-hover:text-emerald-300 shrink-0">
+                            <i data-lucide="graduation-cap" class="w-5 h-5"></i></div>
+                        <div>
+                            <h3 class="font-semibold text-zinc-200 text-sm">Scholarship</h3>
+                            <p class="text-xs text-zinc-500 mt-1">SCOPE details</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -272,7 +371,7 @@
         let chatStarted = false;
         let messageCount = 0;
         let conversationHistory = [];
-        let apiEndpoint = localStorage.getItem('geminiApiEndpoint') || 'http://localhost:3001/api/chat';
+        let apiEndpoint = 'https://poornima-oracle.onrender.com/api/chat'||localStorage.getItem('geminiApiEndpoint') ;
         let isLoading = false;
         let isSidebarCollapsed = false;
 
@@ -280,19 +379,19 @@
             if (!localStorage.getItem('geminiApiEndpoint')) {
                 document.getElementById('apiModal').classList.remove('hidden');
             }
-            
+
             // Initial render of welcome screen
             const template = document.getElementById('welcomeTemplate');
             document.getElementById('chatContainer').appendChild(template.content.cloneNode(true));
             lucide.createIcons();
-            
+
             // Focus input on desktop only
-            if(window.innerWidth > 768) {
+            if (window.innerWidth > 768) {
                 document.getElementById('messageInput').focus();
             }
 
             new ClickSpark();
-            
+
             // Prevent double tap zoom on iOS
             document.addEventListener('dblclick', e => e.preventDefault(), { passive: false });
         });
@@ -321,7 +420,7 @@
                 sidebar.classList.add('collapsed', 'w-20');
                 sidebar.classList.remove('w-72', 'md:w-72');
                 // Need to override tailwind class for width
-                sidebar.style.width = '80px'; 
+                sidebar.style.width = '80px';
                 collapseIcon.classList.add('rotate-180');
             } else {
                 sidebar.classList.remove('collapsed', 'w-20');
@@ -337,26 +436,26 @@
             messageCount = 0;
             conversationHistory = [];
             isLoading = false;
-            
+
             // 2. Reset UI
             const chatContainer = document.getElementById('chatContainer');
             chatContainer.innerHTML = '';
             const template = document.getElementById('welcomeTemplate');
             chatContainer.appendChild(template.content.cloneNode(true));
-            
+
             // 3. Reset Input
             const input = document.getElementById('messageInput');
             input.value = '';
             input.style.height = 'auto';
-            
+
             // 4. Reset Button
             const sendBtn = document.getElementById('sendButton');
             sendBtn.disabled = false;
             sendBtn.innerHTML = '<i data-lucide="send" class="w-5 h-5"></i>';
-            
+
             // 5. Refresh Icons
             lucide.createIcons();
-            
+
             // 6. Close Mobile Sidebar (Important fix for mobile)
             if (window.innerWidth < 768) {
                 closeMobileSidebar();
@@ -418,7 +517,7 @@
 
             messageCount++;
             isLoading = true;
-            
+
             const sendBtn = document.getElementById('sendButton');
             sendBtn.disabled = true;
             sendBtn.innerHTML = '<div class="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin"></div>';
@@ -467,7 +566,7 @@
 
                 document.getElementById(typingId).remove();
                 conversationHistory.push({ role: 'assistant', content: String(responseText) });
-                
+
                 const aiMsgHTML = `
                     <div class="flex justify-start mb-6 animate-slide-in">
                         <div class="w-8 h-8 rounded-lg bg-zinc-800 border border-white/10 flex items-center justify-center mr-2 md:mr-3 mt-auto mb-1 shrink-0">
@@ -525,7 +624,7 @@
 
         function escapeHtml(text) {
             if (!text) return '';
-            const map = { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;' };
+            const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
             return String(text).replace(/[&<>"']/g, m => map[m]);
         }
 
@@ -594,4 +693,5 @@
         }
     </script>
 </body>
+
 </html>
