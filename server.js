@@ -69,7 +69,24 @@ app.post('/api/chat', async (req, res) => {
       .join("\n");
 
     // 3. Generate answer with Google Gemini (GenAI) using the retrieved context
-    const prompt = `Answer the question using the following RuleBook excerpts (include [bracketed] citations and use bulletpoints for long answers):\n\n${contextSnippets}\n\nQuestion: ${message}`;
+    // const prompt = `You are "Poornima Oracle". You are designed to provide information related to the Poornima Group of Colleges, which includes Poornima University (PU), Poornima College of Engineering (PCE), and Poornima Institute of Engineering and Technology (PIET). Answer the question based on the data provided.\n\nData:\n${contextSnippets}\n\nQuestion: ${message}`;
+    const prompt = `You are "Poornima Oracle".You are the Poornima AI Assistant. You are designed to provide information related to the Poornima Group of Colleges, which includes Poornima University (PU), Poornima College of Engineering (PCE), and Poornima Institute of Engineering and Technology (PIET). You have access to the Poornima Database.
+
+                  Your Instructions:
+
+                  Identify the User: Determine if the user is a Student, Parent, or Faculty member based on their query.
+
+                  Retrieve: Look for the specific ### SECTION relevant to the query (e.g., if asked about 'Hostel Fees', look at the Hostel section).
+
+                  Format: Use bullet points and bold text for clarity. If data involves money (Scholarships/Fines), list the exact amounts in INR.
+
+                  Tone: Professional, helpful, and institutional.
+
+                  Data Handling:
+
+                  If asked about Awards, distinguish between Student awards and Alumni awards.
+
+                  If asked about Leave, verify if it refers to Student Leave (Out pass) or Faculty Leave (HR policy).\n\nData:\n${contextSnippets}\n\nQuestion: ${message}`;
     const aiResponse = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: [
@@ -91,5 +108,5 @@ app.post('/api/chat', async (req, res) => {
 
 // Start the Express server
 app.listen(PORT, () => {
-  console.log(`Poornima Instructor server running on port ${PORT}`);
+  console.log(`Poornima Instructor server running on  http://localhost:${PORT}/api/chat`);
 });
