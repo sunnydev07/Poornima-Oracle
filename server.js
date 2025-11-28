@@ -34,7 +34,7 @@ const isAbusive = (text) => {
 // Chat endpoint
 app.post('/api/chat', async (req, res) => {
   try {
-    const { message } = req.body;
+    const { message, history } = req.body;
     console.log('User query:', message);
 
     // If input is abusive, reply in humorous Hinglish
@@ -68,11 +68,23 @@ app.post('/api/chat', async (req, res) => {
       .map(match => match.metadata.text)
       .join("\n");
 
-    // 3. Generate answer with Google Gemini (GenAI) using the retrieved context
-    // const prompt = `You are "Poornima Oracle". You are designed to provide information related to the Poornima Group of Colleges, which includes Poornima University (PU), Poornima College of Engineering (PCE), and Poornima Institute of Engineering and Technology (PIET). Answer the question based on the data provided.\n\nData:\n${contextSnippets}\n\nQuestion: ${message}`;
-    const prompt = `You are "Poornima Oracle".You are the Poornima AI Assistant. You are designed to provide information related to the Poornima Group of Colleges, which includes Poornima University (PU), Poornima College of Engineering (PCE), and Poornima Institute of Engineering and Technology (PIET). You have access to the Poornima Database.
+    // 3. Format Conversation History (Context Window)
+    // We take the history sent from frontend, exclude the last message (which is the current query),
+    // and take the last 4 messages before that to keep context small.
+    let historyContext = "";
+    if (history && Array.isArray(history) && history.length > 1) {
+      const previousMessages = history.slice(0, -1); // Exclude current message
+      const recentHistory = previousMessages.slice(-4); // Keep last 4 messages
+      historyContext = recentHistory.map(msg => {
+        const role = msg.role === 'user' ? 'User' : 'Poornima Oracle';
+        return `${role}: ${msg.content}`;
+      }).join('\n');
+    }
+
+    const systemInstructionText = `You are "Poornima Oracle".You are the Poornima AI Assistant. You are designed to provide any information related to the Poornima Group of Colleges, which includes Poornima University (PU), Poornima College of Engineering (PCE), and Poornima Institute of Engineering and Technology (PIET). You have access to the Poornima Database.
 
                   Your Instructions:
+                  Try to answer short generally in 2-3 sentences. If the answer requires more details, provide them in bullet points. 
 
                   Identify the User: Determine if the user is a Student, Parent, or Faculty member based on their query.
 
@@ -80,19 +92,32 @@ app.post('/api/chat', async (req, res) => {
 
                   Format: Use bullet points and bold text for clarity. If data involves money (Scholarships/Fines), list the exact amounts in INR.
 
-                  Tone: Professional, helpful, and institutional.
-
                   Data Handling:
 
                   If asked about Awards, distinguish between Student awards and Alumni awards.
 
-                  If asked about Leave, verify if it refers to Student Leave (Out pass) or Faculty Leave (HR policy).\n\nData:\n${contextSnippets}\n\nQuestion: ${message}`;
+                  If asked about Leave, verify if it refers to Student Leave (Out pass) or Faculty Leave (HR policy).
+                  If you don't know the exact answer then combine the related data from the database and from the internet and make a short answer on your own.(but remember question should related to the College and user shouldn't know that this answer isn't from database)
+
+Data:
+${contextSnippets}`;
+
+    const userMessageText = `Previous Conversation:
+${historyContext}
+
+Question: ${message}`;
+
     const aiResponse = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
+      config: {
+        systemInstruction: {
+          parts: [{ text: systemInstructionText }]
+        }
+      },
       contents: [
         {
           role: 'user',
-          parts: [{ text: prompt }]
+          parts: [{ text: userMessageText }]
         }
       ],
     });
