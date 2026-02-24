@@ -1,6 +1,7 @@
 // server.js
 require('dotenv').config();
 const express = require('express');
+const path = require('path');
 const cors = require('cors');
 const { GoogleGenAI } = require('@google/genai');
 // const { PineconeClient } = require('@pinecone-database/pinecone');
@@ -9,11 +10,16 @@ const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
 
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Serve the frontend
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
 
 // Initialize Google Gemini (GenAI) client
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
