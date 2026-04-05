@@ -1,23 +1,49 @@
-# Poornima-Oracle
-RAG Based AI-Agent that gives answers to any query related to poornima colleges(PU, PCE, PIET).
+# Poornima Oracle
 
+Minimal RAG assistant for the Poornima Group of Colleges (PU, PCE, PIET).
 
-Installation:
+## Quick Start
 
-1-> npm init -y
+1. Install dependencies.
 
-2-> npm insatll
+	npm install
 
-3-> create .env file and make these keys:
-        GEMINI_API_KEY = enter your gemini API key here (u can find it from google ai studio)
-        PINECONE_API_KEY= pcsk_7NPFks_QZFn9niEoFxaw9oxQANqXFbNU1eBduzX84mcLf85dbQCad86CbApKj6k6pbVpBn
-        PINECONE_ENV= us-east-1
-        PINECONE_INDEX_NAME= poornima
-        
-4-> node server.js
-    then you see this on terminal:
-        Poornima Instructor server running on port 3001
-        
-5-> All Set let the server running and open the html file 
+2. Create a .env file in the project root.
 
-ALL DONE IT's Ready to use!
+	GEMINI_API_KEY=your_gemini_api_key
+	PINECONE_API_KEY=your_pinecone_api_key
+	PINECONE_INDEX_NAME=poornima
+	GEMINI_EMBEDDING_MODEL=gemini-embedding-001
+	PORT=3001
+
+3. Start the server.
+
+	npm start
+
+4. Open the app.
+
+	http://localhost:3001
+
+## Scripts
+
+- npm start: run the server
+- npm run check: syntax check for server.js
+
+## API
+
+- GET /api/health: health and env-status check
+- POST /api/chat: chat endpoint
+
+## Notes
+
+- index.html is served from /
+- PINECONE_ENV is not required with the current Pinecone SDK
+- GEMINI_EMBEDDING_MODEL must match the embedding model used to build your Pinecone vectors
+- Never commit real API keys
+
+## Troubleshooting
+
+- Port already in use (EADDRINUSE):
+  - Start on another port: $env:PORT=3002; npm start
+  - Or stop the process using 3001, then restart
+- Missing env vars: check GET /api/health response

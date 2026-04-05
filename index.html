@@ -171,10 +171,10 @@
                 </div>
                 <h2 class="text-xl font-bold text-white">Setup API</h2>
             </div>
-            <p class="text-zinc-400 text-sm mb-4">Configure your backend proxy endpoint.</p>
+            <p class="text-zinc-400 text-sm mb-4">Configure your backend API endpoint.</p>
             <input type="text" id="apiEndpoint"
                 class="w-full glass-input px-4 py-3 rounded-xl text-white placeholder-zinc-600 focus:outline-none focus:border-cyan-500/50 transition-all mb-4 text-sm"
-                placeholder="https://poornima-oracle.onrender.com/api/chat" />
+                placeholder="http://localhost:3001/api/chat" />
             <div class="flex justify-end gap-3">
                 <button onclick="skipSetup()"
                     class="px-4 py-2 text-sm text-zinc-400 hover:text-white transition-colors">Demo Mode</button>
@@ -314,8 +314,8 @@
            <p class="text-zinc-400 text-center  md:mb-3 max-w-lg text-base md:text-lg font-light px-4">
                 You've officially come to the right place. Ask me anything about campus life.
             </p>
-             <p class="text-cyan-400 text-center md:mb-12 max-w-lg text-base md:text-xs font-light px-4">
-                server is temporarily down due to some API billing issue, sorry for this it will be fixed soon...
+            <p class="text-cyan-400 text-center md:mb-12 max-w-lg text-base md:text-xs font-light px-4">
+                Use Demo Mode if you want to try the UI without a backend endpoint.
             </p>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 w-full max-w-3xl px-4">
                 <div onclick="sendSuggestion('What is the anti-ragging policy?')"
@@ -370,15 +370,25 @@
     <script>
         lucide.createIcons();
 
+        function getDefaultApiEndpoint() {
+            if (window.location.protocol === 'file:') {
+                return 'http://localhost:3001/api/chat';
+            }
+
+            return `${window.location.origin}/api/chat`;
+        }
+
         let chatStarted = false;
         let messageCount = 0;
         let conversationHistory = [];
-        let apiEndpoint = 'https://poornima-oracle.onrender.com/api/chat'||localStorage.getItem('geminiApiEndpoint') ;
+        let demoMode = false;
+        let apiEndpoint = localStorage.getItem('geminiApiEndpoint') || getDefaultApiEndpoint();
         let isLoading = false;
         let isSidebarCollapsed = false;
 
         window.addEventListener('load', () => {
             if (!localStorage.getItem('geminiApiEndpoint')) {
+                document.getElementById('apiEndpoint').value = apiEndpoint;
                 document.getElementById('apiModal').classList.remove('hidden');
             }
 
@@ -468,20 +478,23 @@
 
         // --- Standard Functions ---
         function showApiModal() {
+            document.getElementById('apiEndpoint').value = demoMode ? '' : apiEndpoint;
             document.getElementById('apiModal').classList.remove('hidden');
-            document.getElementById('apiEndpoint').value = apiEndpoint;
         }
 
         function saveApiEndpoint() {
             const endpoint = document.getElementById('apiEndpoint').value.trim();
             if (endpoint) {
                 apiEndpoint = endpoint;
+                demoMode = false;
                 localStorage.setItem('geminiApiEndpoint', endpoint);
                 document.getElementById('apiModal').classList.add('hidden');
             }
         }
 
         function skipSetup() {
+            demoMode = true;
+            apiEndpoint = '';
             document.getElementById('apiModal').classList.add('hidden');
         }
 
@@ -559,11 +572,11 @@
 
             try {
                 let responseText;
-                if (apiEndpoint) {
-                    responseText = await callGeminiAPI(message);
-                } else {
+                if (demoMode || !apiEndpoint) {
                     await new Promise(r => setTimeout(r, 1500));
                     responseText = "I am currently in Demo Mode. Please configure a backend API endpoint.";
+                } else {
+                    responseText = await callGeminiAPI(message);
                 }
 
                 document.getElementById(typingId).remove();
@@ -615,8 +628,8 @@
 
         function formatMessage(text) {
             if (!text) return '<p class="text-zinc-500 italic">No response</p>';
-            return String(text)
-                .replace(/\r\n/g, '\n')
+            const escapedText = escapeHtml(String(text)).replace(/\r\n/g, '\n');
+            return escapedText
                 .replace(/\n\n/g, '<br/><br/>')
                 .replace(/\n/g, '<br/>')
                 .replace(/`([^`]+)`/g, '<code class="font-mono text-sm">$1</code>')
