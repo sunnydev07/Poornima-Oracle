@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Environment and secrets (keep .env.example if you add one)
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Editors / IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# Optional: uncomment if you add tooling that writes these
+# dist/
+# build/
+# coverage/
+# .nyc_output/
+# .eslintcache
