@@ -174,7 +174,7 @@
             <p class="text-zinc-400 text-sm mb-4">Configure your backend API endpoint.</p>
             <input type="text" id="apiEndpoint"
                 class="w-full glass-input px-4 py-3 rounded-xl text-white placeholder-zinc-600 focus:outline-none focus:border-cyan-500/50 transition-all mb-4 text-sm"
-                placeholder="http://localhost:3001/api/chat" />
+                placeholder="https://poornima-oracle.onrender.com/api/chat" />
             <div class="flex justify-end gap-3">
                 <button onclick="skipSetup()"
                     class="px-4 py-2 text-sm text-zinc-400 hover:text-white transition-colors">Demo Mode</button>
@@ -370,27 +370,35 @@
     <script>
         lucide.createIcons();
 
+        const DEFAULT_API_ENDPOINT = 'https://poornima-oracle.onrender.com/api/chat';
+
         function getDefaultApiEndpoint() {
-            if (window.location.protocol === 'file:') {
-                return 'http://localhost:3001/api/chat';
+            return DEFAULT_API_ENDPOINT;
+        }
+
+        function ensureApiEndpoint() {
+            const storedEndpoint = localStorage.getItem('geminiApiEndpoint');
+            const normalizedStoredEndpoint = typeof storedEndpoint === 'string' ? storedEndpoint.trim() : '';
+            const endpoint = normalizedStoredEndpoint || getDefaultApiEndpoint();
+
+            if (!normalizedStoredEndpoint) {
+                localStorage.setItem('geminiApiEndpoint', endpoint);
             }
 
-            return `${window.location.origin}/api/chat`;
+            return endpoint;
         }
 
         let chatStarted = false;
         let messageCount = 0;
         let conversationHistory = [];
         let demoMode = false;
-        let apiEndpoint = localStorage.getItem('geminiApiEndpoint') || getDefaultApiEndpoint();
+        let apiEndpoint = ensureApiEndpoint();
         let isLoading = false;
         let isSidebarCollapsed = false;
 
         window.addEventListener('load', () => {
-            if (!localStorage.getItem('geminiApiEndpoint')) {
-                document.getElementById('apiEndpoint').value = apiEndpoint;
-                document.getElementById('apiModal').classList.remove('hidden');
-            }
+            apiEndpoint = ensureApiEndpoint();
+            document.getElementById('apiEndpoint').value = apiEndpoint;
 
             // Initial render of welcome screen
             const template = document.getElementById('welcomeTemplate');
@@ -483,13 +491,11 @@
         }
 
         function saveApiEndpoint() {
-            const endpoint = document.getElementById('apiEndpoint').value.trim();
-            if (endpoint) {
-                apiEndpoint = endpoint;
-                demoMode = false;
-                localStorage.setItem('geminiApiEndpoint', endpoint);
-                document.getElementById('apiModal').classList.add('hidden');
-            }
+            const endpoint = document.getElementById('apiEndpoint').value.trim() || getDefaultApiEndpoint();
+            apiEndpoint = endpoint;
+            demoMode = false;
+            localStorage.setItem('geminiApiEndpoint', endpoint);
+            document.getElementById('apiModal').classList.add('hidden');
         }
 
         function skipSetup() {
@@ -608,6 +614,10 @@
         }
 
         async function callGeminiAPI(message) {
+            if (!apiEndpoint) {
+                apiEndpoint = ensureApiEndpoint();
+            }
+
             if (!apiEndpoint) throw new Error('API endpoint not configured.');
             const resp = await fetch(apiEndpoint, {
                 method: 'POST',
