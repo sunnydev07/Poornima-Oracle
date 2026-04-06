@@ -386,6 +386,11 @@
             }
 
             return endpoint;
+            if (window.location.protocol === 'file:') {
+                return 'https://poornima-oracle.onrender.com/api/chat';
+            }
+
+            return `https://poornima-oracle.onrender.com/api/chat`;
         }
 
         let chatStarted = false;
@@ -393,6 +398,7 @@
         let conversationHistory = [];
         let demoMode = false;
         let apiEndpoint = ensureApiEndpoint();
+        let apiEndpoint =  getDefaultApiEndpoint();
         let isLoading = false;
         let isSidebarCollapsed = false;
 
