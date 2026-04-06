@@ -59,7 +59,7 @@ function validateApiKeysAtStartup() {
   }
 }
 
-const badWords = ['fuck', 'shit', 'stupid', 'bakwaas'];
+const badWords = ['fuck', 'shit', 'stupid', 'bakwaas','laude','behenchod','gandu'];
 const MAX_HISTORY_MESSAGES = 4;
 const MAX_MESSAGE_CHARS = 2000;
 const MAX_CONTEXT_CHARS = 4000;
