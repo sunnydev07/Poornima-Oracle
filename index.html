@@ -54,34 +54,160 @@
             border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
-        .typing-dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: #22d3ee;
-            animation: typing 1.4s infinite;
+        .chat-ambient {
+            position: absolute;
+            inset: 0;
+            overflow: hidden;
+            pointer-events: none;
+            z-index: 0;
         }
 
-        .typing-dot:nth-child(1) {
-            animation-delay: -0.32s;
+        .chat-orb {
+            position: absolute;
+            width: clamp(14rem, 28vw, 24rem);
+            height: clamp(14rem, 28vw, 24rem);
+            border-radius: 9999px;
+            filter: blur(64px);
+            opacity: 0.3;
+            will-change: transform;
+            animation-name: float;
+            animation-iteration-count: infinite;
+            animation-direction: alternate;
+            animation-timing-function: ease-in-out;
         }
 
-        .typing-dot:nth-child(2) {
-            animation-delay: -0.16s;
+        .chat-orb-cyan {
+            top: 8%;
+            left: 7%;
+            background: radial-gradient(circle, rgba(34, 211, 238, 0.9) 0%, rgba(34, 211, 238, 0) 68%);
+            animation-duration: 12s;
         }
 
-        @keyframes typing {
+        .chat-orb-blue {
+            right: 8%;
+            top: 24%;
+            background: radial-gradient(circle, rgba(59, 130, 246, 0.9) 0%, rgba(59, 130, 246, 0) 68%);
+            animation-duration: 18s;
+            animation-delay: 1.4s;
+        }
+
+        .chat-orb-purple {
+            left: 36%;
+            bottom: 3%;
+            background: radial-gradient(circle, rgba(168, 85, 247, 0.85) 0%, rgba(168, 85, 247, 0) 70%);
+            animation-duration: 20s;
+            animation-delay: 2.7s;
+        }
+
+        .chat-bottom-fade {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: 96px;
+            pointer-events: none;
+            z-index: 20;
+            background: linear-gradient(to bottom, transparent, rgba(9, 9, 11, 0.6), #09090b);
+        }
+
+        .aurora-glow {
+            animation: aurora 4s ease-in-out infinite;
+        }
+
+        .oracle-avatar-breathe {
+            animation: breathe 4s ease-in-out infinite;
+            border-radius: 9999px;
+        }
+
+        .typing-shimmer {
+            background: linear-gradient(90deg, rgba(34, 211, 238, 0.12), rgba(103, 232, 249, 0.85), rgba(168, 85, 247, 0.18));
+            background-size: 240% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+
+        .copy-tooltip {
+            position: absolute;
+            left: 50%;
+            top: -2rem;
+            transform: translateX(-50%);
+            border: 1px solid rgba(34, 211, 238, 0.3);
+            border-radius: 0.5rem;
+            background: rgba(8, 145, 178, 0.16);
+            color: #cffafe;
+            font-size: 10px;
+            font-weight: 700;
+            line-height: 1;
+            opacity: 0;
+            padding: 0.35rem 0.5rem;
+            pointer-events: none;
+            transition: opacity 0.18s ease, transform 0.18s ease;
+            white-space: nowrap;
+        }
+
+        .copy-tooltip.is-visible {
+            opacity: 1;
+            transform: translate(-50%, -2px);
+        }
+
+        @keyframes float {
+            0% {
+                transform: translate(-30px, -18px) scale(0.98);
+            }
+
+            50% {
+                transform: translate(16px, 30px) scale(1.05);
+            }
+
+            100% {
+                transform: translate(30px, -30px) scale(1);
+            }
+        }
+
+        @keyframes staggerIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes aurora {
 
             0%,
-            80%,
             100% {
-                transform: scale(0);
                 opacity: 0.5;
             }
 
-            40% {
+            50% {
+                opacity: 0.9;
+            }
+        }
+
+        @keyframes breathe {
+
+            0%,
+            100% {
                 transform: scale(1);
-                opacity: 1;
+                box-shadow: 0 0 30px rgba(6, 182, 212, 0.22);
+            }
+
+            50% {
+                transform: scale(1.03);
+                box-shadow: 0 0 44px rgba(34, 211, 238, 0.42);
+            }
+        }
+
+        @keyframes shimmer {
+            0% {
+                background-position: -120% 0;
+            }
+
+            100% {
+                background-position: 120% 0;
             }
         }
 
@@ -385,15 +511,27 @@
             </header>
 
             <!-- Chat Area -->
-            <div class="flex-1 overflow-y-auto p-4 md:p-6 scrollbar-thin" id="chatContainer">
-                <!-- Content injected via JS -->
+            <div class="relative flex-1 overflow-hidden">
+                <div class="chat-ambient" aria-hidden="true">
+                    <div class="chat-orb chat-orb-cyan"></div>
+                    <div class="chat-orb chat-orb-blue"></div>
+                    <div class="chat-orb chat-orb-purple"></div>
+                </div>
+                <div class="relative z-10 h-full overflow-y-auto p-4 md:p-6 scrollbar-thin" id="chatContainer">
+                    <!-- Content injected via JS -->
+                </div>
+                <div class="chat-bottom-fade" aria-hidden="true"></div>
+                <button id="scrollToBottomButton" type="button" onclick="scrollChatToBottom()"
+                    class="hidden absolute bottom-4 right-4 z-30 inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-zinc-950/85 px-4 py-2 text-xs font-semibold text-cyan-100 shadow-lg shadow-cyan-950/30 backdrop-blur-md hover:bg-cyan-500/10 hover:text-white transition active:scale-95">
+                    New message ↓
+                </button>
             </div>
 
             <!-- Input Area -->
             <div class="p-3 md:p-6 bg-gradient-to-t from-zinc-950 via-zinc-950 to-transparent z-20 safe-pb">
                 <div class="max-w-3xl mx-auto relative group">
                     <div
-                        class="absolute -inset-1 bg-gradient-to-r from-cyan-500/20 via-purple-500/10 to-blue-500/20 rounded-2xl blur-md opacity-50 group-hover:opacity-75 transition-opacity duration-500 hidden md:block">
+                        class="aurora-glow absolute -inset-1 bg-gradient-to-r from-cyan-500/20 via-purple-500/10 to-blue-500/20 rounded-2xl blur-md opacity-50 group-hover:opacity-75 transition-opacity duration-500 hidden md:block">
                     </div>
                     <div class="glass-input rounded-2xl flex items-end p-1.5 md:p-2 relative z-10">
                         <textarea id="messageInput"
@@ -424,9 +562,9 @@
         <div id="welcomeScreen"
             class="h-full flex flex-col items-center justify-center max-w-4xl mx-auto animate-fade-in py-8">
             <div
-                class="w-20 h-20 md:w-24 md:h-24 rounded-full overflow-hidden border-2 border-white/10 mb-6 shadow-[0_0_30px_rgba(6,182,212,0.2)] shrink-0">
+                class="w-20 h-20 md:w-24 md:h-24 rounded-full border-2 border-white/10 mb-6 shadow-[0_0_30px_rgba(6,182,212,0.2)] shrink-0">
                 <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQm0aT7k5O09y2256AMvDppRfJq7pIeV9d0KA&s"
-                    alt="Oracle" class="w-full h-full object-cover">
+                    alt="Oracle" class="oracle-avatar-breathe w-full h-full object-cover">
             </div>
             <h1
                 class="text-2xl md:text-5xl font-bold text-center mb-4 bg-gradient-to-r from-cyan-300 via-white to-cyan-300 bg-clip-text text-transparent drop-shadow-sm px-2">
@@ -658,6 +796,7 @@
         let speechUserGestureUnlocked = false;
         let currentSpeechMessageId = '';
         let currentSpeechUtterance = null;
+        let scrollAffordanceTimer = null;
 
         window.addEventListener('load', () => {
             apiEndpoint = ensureApiEndpoint();
@@ -667,6 +806,7 @@
                 renderWelcomeScreen();
             }
             initializeVoiceFeatures();
+            initializeScrollAffordance();
             refreshIcons();
 
             // Focus input on desktop only
@@ -728,6 +868,7 @@
             const chatContainer = document.getElementById('chatContainer');
             chatContainer.innerHTML = '';
             renderWelcomeScreen();
+            updateScrollToBottomButton();
 
             // 3. Reset Input
             const input = document.getElementById('messageInput');
@@ -748,6 +889,40 @@
             } else {
                 input.focus();
             }
+        }
+
+        function initializeScrollAffordance() {
+            const chatContainer = document.getElementById('chatContainer');
+            if (!chatContainer) return;
+
+            chatContainer.addEventListener('scroll', handleChatScroll, { passive: true });
+            updateScrollToBottomButton();
+        }
+
+        function handleChatScroll() {
+            if (scrollAffordanceTimer) return;
+
+            scrollAffordanceTimer = window.setTimeout(() => {
+                scrollAffordanceTimer = null;
+                updateScrollToBottomButton();
+            }, 100);
+        }
+
+        function updateScrollToBottomButton() {
+            const chatContainer = document.getElementById('chatContainer');
+            const scrollButton = document.getElementById('scrollToBottomButton');
+            if (!chatContainer || !scrollButton) return;
+
+            const isAwayFromBottom = chatContainer.scrollTop < chatContainer.scrollHeight - chatContainer.clientHeight - 100;
+            scrollButton.classList.toggle('hidden', !isAwayFromBottom);
+        }
+
+        function scrollChatToBottom() {
+            const chatContainer = document.getElementById('chatContainer');
+            if (!chatContainer) return;
+
+            chatContainer.scrollTo({ top: chatContainer.scrollHeight, behavior: 'smooth' });
+            window.setTimeout(updateScrollToBottomButton, 120);
         }
 
         // --- Standard Functions ---
@@ -933,6 +1108,11 @@
             speakAssistantMessage(messageId);
         }
 
+        function readAssistantMessage(messageId) {
+            speechUserGestureUnlocked = true;
+            speakAssistantMessage(messageId);
+        }
+
         function maybeAutoReadAssistantMessage(messageId) {
             if (!autoReadEnabled || !speechUserGestureUnlocked) return;
             speakAssistantMessage(messageId);
@@ -984,12 +1164,16 @@
         }
 
         function updateSpeechButton(messageId, speaking) {
-            const button = document.querySelector(`[data-speech-for="${CSS.escape(messageId)}"]`);
-            if (!button) return;
+            const buttons = document.querySelectorAll(`[data-speech-for="${CSS.escape(messageId)}"]`);
+            if (!buttons.length) return;
 
-            button.setAttribute('aria-pressed', speaking ? 'true' : 'false');
-            button.setAttribute('aria-label', speaking ? 'Stop reading response aloud' : 'Read response aloud');
-            button.innerHTML = `<i data-lucide="${speaking ? 'volume-x' : 'volume-2'}" class="w-4 h-4"></i>`;
+            buttons.forEach((button) => {
+                const isLabeled = button.dataset.speechLabel === 'true';
+                const label = speaking ? 'Stop reading' : 'Read Aloud';
+                button.setAttribute('aria-pressed', speaking ? 'true' : 'false');
+                button.setAttribute('aria-label', speaking ? 'Stop reading response aloud' : 'Read response aloud');
+                button.innerHTML = `<i data-lucide="${speaking ? 'volume-x' : 'volume-2'}" class="w-4 h-4"></i>${isLabeled ? `<span>${label}</span>` : ''}`;
+            });
             refreshIcons();
         }
 
@@ -1005,6 +1189,80 @@
                 .trim();
         }
 
+        function getAssistantMessage(messageId) {
+            return conversationHistory.find(item => item.id === messageId && item.role === 'assistant') || null;
+        }
+
+        async function copyAssistantMessage(messageId, button) {
+            const message = getAssistantMessage(messageId);
+            const text = message?.content || '';
+            if (!text) return;
+
+            try {
+                await writeClipboardText(text);
+                showCopyTooltip(button);
+            } catch (error) {
+                console.warn('Response could not be copied:', error);
+            }
+        }
+
+        async function writeClipboardText(text) {
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(text);
+                return;
+            }
+
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.setAttribute('readonly', '');
+            textArea.style.position = 'fixed';
+            textArea.style.opacity = '0';
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            textArea.remove();
+        }
+
+        function showCopyTooltip(button) {
+            const tooltip = button?.querySelector('[data-copy-tooltip]');
+            if (!tooltip) return;
+
+            tooltip.classList.add('is-visible');
+            if (button.copyTooltipTimer) {
+                window.clearTimeout(button.copyTooltipTimer);
+            }
+
+            button.copyTooltipTimer = window.setTimeout(() => {
+                tooltip.classList.remove('is-visible');
+            }, 1100);
+        }
+
+        function getAssistantQuestion(messageId) {
+            const messageIndex = conversationHistory.findIndex(item => item.id === messageId && item.role === 'assistant');
+            if (messageIndex === -1) return '';
+
+            const message = conversationHistory[messageIndex];
+            if (message.question) return message.question;
+
+            for (let index = messageIndex - 1; index >= 0; index--) {
+                if (conversationHistory[index]?.role === 'user') {
+                    return conversationHistory[index].content || '';
+                }
+            }
+
+            return '';
+        }
+
+        async function regenerateAssistantMessage(messageId) {
+            if (isLoading) return;
+
+            const question = getAssistantQuestion(messageId).trim();
+            if (!question) return;
+
+            stopCurrentSpeech();
+            await sendMessage({ allowSpeech: true, message: question });
+        }
+
         // --- Chat Logic ---
         async function sendMessage(options = {}) {
             if (isLoading) return;
@@ -1014,7 +1272,8 @@
             }
 
             const input = document.getElementById('messageInput');
-            const message = input.value.trim();
+            const hasMessageOverride = typeof options.message === 'string';
+            const message = (hasMessageOverride ? options.message : input.value).trim();
             if (!message) return;
 
             const chatContainer = document.getElementById('chatContainer');
@@ -1037,15 +1296,19 @@
             renderUserMessage(userMessage);
             refreshIcons();
 
-            input.value = '';
-            input.style.height = 'auto';
+            if (!hasMessageOverride) {
+                input.value = '';
+                input.style.height = 'auto';
+            }
             chatContainer.scrollTop = chatContainer.scrollHeight;
+            updateScrollToBottomButton();
 
             const assistantId = createMessageId('assistant');
             const assistantShell = renderAssistantShell(assistantId);
             const streamRenderer = createStreamRenderer(assistantShell.contentEl);
             refreshIcons();
             chatContainer.scrollTop = chatContainer.scrollHeight;
+            updateScrollToBottomButton();
 
             try {
                 let responsePayload;
@@ -1056,10 +1319,12 @@
                         onSources: (sources) => {
                             assistantShell.sourcesEl.innerHTML = '';
                             chatContainer.scrollTop = chatContainer.scrollHeight;
+                            updateScrollToBottomButton();
                         },
                         onToken: (answer) => {
                             streamRenderer(answer);
                             chatContainer.scrollTop = chatContainer.scrollHeight;
+                            updateScrollToBottomButton();
                         },
                     });
                 }
@@ -1078,6 +1343,7 @@
                     question: message,
                 });
                 saveConversationHistory();
+                assistantShell.actionEl.innerHTML = renderAssistantActionBar(assistantId);
                 refreshIcons();
                 maybeAutoReadAssistantMessage(assistantId);
 
@@ -1091,6 +1357,7 @@
                 sendBtn.innerHTML = '<i data-lucide="send" class="w-5 h-5"></i>';
                 refreshIcons();
                 chatContainer.scrollTop = chatContainer.scrollHeight;
+                updateScrollToBottomButton();
             }
         }
 
@@ -1207,6 +1474,10 @@
             const welcomeScreen = template.content.cloneNode(true);
             const suggestionGrid = welcomeScreen.querySelector('[data-suggestion-grid]');
             suggestionGrid.innerHTML = shufflePrompts(ALL_PROMPTS).slice(0, 4).map(createSuggestionCard).join('');
+            suggestionGrid.querySelectorAll('[data-suggestion-card]').forEach((card, index) => {
+                card.style.animation = 'staggerIn 0.4s ease-out both';
+                card.style.animationDelay = `${index * 100}ms`;
+            });
             document.getElementById('chatContainer').appendChild(welcomeScreen);
             refreshIcons();
         }
@@ -1226,6 +1497,7 @@
 
             return `
                 <div onclick="sendSuggestion(${promptValue})"
+                    data-suggestion-card
                     class="glass p-4 rounded-xl cursor-pointer hover:bg-white/5 ${colorClasses.border} transition-all group active:scale-98 touch-manipulation">
                     <div class="flex items-start gap-3">
                         <div class="p-2 ${colorClasses.bg} rounded-lg ${colorClasses.text} ${colorClasses.hoverText} shrink-0">
@@ -1300,6 +1572,7 @@
 
             requestAnimationFrame(() => {
                 chatContainer.scrollTop = chatContainer.scrollHeight;
+                updateScrollToBottomButton();
             });
             return true;
         }
@@ -1325,12 +1598,15 @@
                     <div class="w-8 h-8 rounded-lg bg-zinc-800 border border-white/10 flex items-center justify-center mr-2 md:mr-3 mt-auto mb-1 shrink-0">
                         <i data-lucide="bot" class="w-5 h-5 text-cyan-400"></i>
                     </div>
-                    <div class="max-w-[85%] md:max-w-[70%] bg-zinc-800/80 border border-white/5 text-zinc-200 p-3 md:p-4 rounded-2xl rounded-bl-sm shadow-sm text-sm md:text-base">
-                        <div class="ai-markdown" data-ai-content>
-                            <div class="flex items-center gap-1.5 h-6"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>
+                    <div class="group max-w-[85%] md:max-w-[70%]">
+                        <div class="bg-zinc-800/80 border border-white/5 text-zinc-200 p-3 md:p-4 rounded-2xl rounded-bl-sm shadow-sm text-sm md:text-base">
+                            <div class="ai-markdown" data-ai-content>
+                                <div class="flex items-center h-6"><div class="typing-shimmer h-1.5 w-24 rounded-full"></div></div>
+                            </div>
+                            <div data-source-list></div>
+                            <div data-feedback-list></div>
                         </div>
-                        <div data-source-list></div>
-                        <div data-feedback-list></div>
+                        <div data-action-list></div>
                     </div>
                 </div>`;
             chatContainer.insertAdjacentHTML('beforeend', aiMsgHTML);
@@ -1340,6 +1616,7 @@
                 contentEl: wrapper.querySelector('[data-ai-content]'),
                 sourcesEl: wrapper.querySelector('[data-source-list]'),
                 feedbackEl: wrapper.querySelector('[data-feedback-list]'),
+                actionEl: wrapper.querySelector('[data-action-list]'),
             };
         }
 
@@ -1349,7 +1626,29 @@
             shell.contentEl.innerHTML = renderMarkdown(message.content);
             shell.sourcesEl.innerHTML = '';
             shell.feedbackEl.innerHTML = renderFeedbackControls(messageId, message.feedback);
+            shell.actionEl.innerHTML = renderAssistantActionBar(messageId);
             refreshIcons();
+        }
+
+        function renderAssistantActionBar(messageId) {
+            const safeMessageId = escapeHtml(messageId);
+
+            return `
+                <div class="assistant-action-bar hidden md:flex opacity-0 group-hover:opacity-100 transition mt-2 ml-1 items-center gap-2 text-xs text-zinc-500">
+                    <button type="button" class="relative inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 font-medium hover:bg-white/10 hover:text-white transition" aria-label="Copy response" onclick="copyAssistantMessage('${safeMessageId}', this)">
+                        <i data-lucide="copy" class="w-4 h-4"></i>
+                        <span>Copy</span>
+                        <span class="copy-tooltip" data-copy-tooltip>Copied!</span>
+                    </button>
+                    <button type="button" class="speech-button inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 font-medium hover:bg-white/10 hover:text-white transition" aria-label="Read response aloud" aria-pressed="false" data-speech-for="${safeMessageId}" data-speech-label="true" onclick="readAssistantMessage('${safeMessageId}')">
+                        <i data-lucide="volume-2" class="w-4 h-4"></i>
+                        <span>Read Aloud</span>
+                    </button>
+                    <button type="button" class="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 font-medium hover:bg-white/10 hover:text-white transition" aria-label="Regenerate response" onclick="regenerateAssistantMessage('${safeMessageId}')">
+                        <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                        <span>Regenerate</span>
+                    </button>
+                </div>`;
         }
 
         function createStreamRenderer(contentEl) {
