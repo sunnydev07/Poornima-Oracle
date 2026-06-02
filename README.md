@@ -15,6 +15,8 @@ Minimal RAG assistant for the Poornima Group of Colleges (PU, PCE, PIET).
 	PINECONE_INDEX_NAME=poornima
 	GEMINI_EMBEDDING_MODEL=gemini-embedding-001
 	PORT=3001
+	RATE_LIMIT_WINDOW_MS=900000
+	CHAT_RATE_LIMIT_MAX=20
 
 3. Start the server.
 
@@ -39,6 +41,8 @@ Minimal RAG assistant for the Poornima Group of Colleges (PU, PCE, PIET).
 - index.html is served from /
 - PINECONE_ENV is not required with the current Pinecone SDK
 - GEMINI_EMBEDDING_MODEL must match the embedding model used to build your Pinecone vectors
+- RATE_LIMIT_WINDOW_MS defaults to 900000 (15 minutes)
+- CHAT_RATE_LIMIT_MAX defaults to 20 requests per IP per window
 - Never commit real API keys
 
 ## Troubleshooting

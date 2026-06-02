@@ -234,6 +234,34 @@
             border-color: rgba(34, 211, 238, 0.45);
             color: #67e8f9;
         }
+
+        .speech-button[aria-pressed="true"],
+        .auto-read-toggle[aria-pressed="true"] {
+            background: rgba(34, 211, 238, 0.16);
+            border-color: rgba(34, 211, 238, 0.45);
+            color: #67e8f9;
+        }
+
+        .mic-listening {
+            animation: micPulse 1.15s ease-out infinite;
+            background: rgba(244, 63, 94, 0.14);
+            border-color: rgba(244, 63, 94, 0.55);
+            color: #fb7185;
+        }
+
+        @keyframes micPulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.45);
+            }
+
+            70% {
+                box-shadow: 0 0 0 8px rgba(244, 63, 94, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(244, 63, 94, 0);
+            }
+        }
     </style>
 </head>
 
@@ -342,10 +370,18 @@
                         Poornima Oracle
                     </h1>
                 </div>
-                <button onclick="showApiModal()"
-                    class="p-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition flex items-center gap-2 active:scale-95">
-                    <i data-lucide="settings" class="w-6 h-6"></i>
-                </button>
+                <div class="flex items-center gap-2">
+                    <button id="autoReadToggle" onclick="toggleAutoRead()" aria-label="Toggle auto-read AI answers"
+                        aria-pressed="false"
+                        class="auto-read-toggle border border-white/10 bg-white/[0.03] px-3 py-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition flex items-center gap-2 active:scale-95 text-xs font-medium whitespace-nowrap">
+                        <i data-lucide="headphones" class="w-4 h-4"></i>
+                        <span>Auto-read</span>
+                    </button>
+                    <button onclick="showApiModal()" aria-label="Open API settings"
+                        class="p-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition flex items-center gap-2 active:scale-95">
+                        <i data-lucide="settings" class="w-6 h-6"></i>
+                    </button>
+                </div>
             </header>
 
             <!-- Chat Area -->
@@ -364,7 +400,12 @@
                             class="w-full bg-transparent border-none text-white placeholder-zinc-500 px-3 md:px-4 py-3 focus:ring-0 resize-none max-h-32 md:max-h-48 overflow-y-auto text-base"
                             rows="1" placeholder="Ask here..." onkeydown="handleKeyPress(event)"
                             oninput="adjustTextareaHeight(this)"></textarea>
-                        <button id="sendButton" onclick="sendMessage()"
+                        <button id="micButton" onclick="toggleSpeechRecognition()" aria-label="Start voice input"
+                            aria-pressed="false" title="Start voice input"
+                            class="p-3 rounded-xl border border-white/10 bg-white/[0.03] text-zinc-400 hover:bg-white/10 hover:text-white transition-all active:scale-95 mb-0.5 mr-2 flex items-center justify-center shrink-0">
+                            <i data-lucide="mic" class="w-5 h-5"></i>
+                        </button>
+                        <button id="sendButton" onclick="sendMessage({ allowSpeech: true })"
                             class="p-3 rounded-xl bg-white text-black hover:bg-zinc-200 transition-all active:scale-95 shadow-[0_0_15px_rgba(255,255,255,0.1)] mb-0.5 mr-0.5 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shrink-0">
                             <i data-lucide="send" class="w-5 h-5"></i>
                         </button>
@@ -397,52 +438,8 @@
             <p class="text-cyan-400 text-center md:mb-12 max-w-lg text-base md:text-xs font-light px-4">
                 Use Demo Mode if you want to try the UI without a backend endpoint.
             </p>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 w-full max-w-3xl px-4">
-                <div onclick="sendSuggestion('What is the anti-ragging policy?')"
-                    class="glass p-4 rounded-xl cursor-pointer hover:bg-white/5 hover:border-cyan-500/30 transition-all group active:scale-98 touch-manipulation">
-                    <div class="flex items-start gap-3">
-                        <div class="p-2 bg-cyan-500/10 rounded-lg text-cyan-400 group-hover:text-cyan-300 shrink-0"><i
-                                data-lucide="shield" class="w-5 h-5"></i></div>
-                        <div>
-                            <h3 class="font-semibold text-zinc-200 text-sm">Policy</h3>
-                            <p class="text-xs text-zinc-500 mt-1">Anti-ragging rules?</p>
-                        </div>
-                    </div>
-                </div>
-                <div onclick="sendSuggestion('What items are prohibited in hostel rooms?')"
-                    class="glass p-4 rounded-xl cursor-pointer hover:bg-white/5 hover:border-rose-500/30 transition-all group active:scale-98 touch-manipulation">
-                    <div class="flex items-start gap-3">
-                        <div class="p-2 bg-rose-500/10 rounded-lg text-rose-400 group-hover:text-rose-300 shrink-0"><i
-                                data-lucide="ban" class="w-5 h-5"></i></div>
-                        <div>
-                            <h3 class="font-semibold text-zinc-200 text-sm">Hostel</h3>
-                            <p class="text-xs text-zinc-500 mt-1">Prohibited items?</p>
-                        </div>
-                    </div>
-                </div>
-                <div onclick="sendSuggestion('Get some short one-liner random advice for students?')"
-                    class="glass p-4 rounded-xl cursor-pointer hover:bg-white/5 hover:border-amber-500/30 transition-all group active:scale-98 touch-manipulation">
-                    <div class="flex items-start gap-3">
-                        <div class="p-2 bg-amber-500/10 rounded-lg text-amber-400 group-hover:text-amber-300 shrink-0">
-                            <i data-lucide="sparkles" class="w-5 h-5"></i></div>
-                        <div>
-                            <h3 class="font-semibold text-zinc-200 text-sm">Advice</h3>
-                            <p class="text-xs text-zinc-500 mt-1">Random wisdom</p>
-                        </div>
-                    </div>
-                </div>
-                <div onclick="sendSuggestion('Explain the SCOPE scholarship for online courses.')"
-                    class="glass p-4 rounded-xl cursor-pointer hover:bg-white/5 hover:border-emerald-500/30 transition-all group active:scale-98 touch-manipulation">
-                    <div class="flex items-start gap-3">
-                        <div
-                            class="p-2 bg-emerald-500/10 rounded-lg text-emerald-400 group-hover:text-emerald-300 shrink-0">
-                            <i data-lucide="graduation-cap" class="w-5 h-5"></i></div>
-                        <div>
-                            <h3 class="font-semibold text-zinc-200 text-sm">Scholarship</h3>
-                            <p class="text-xs text-zinc-500 mt-1">SCOPE details</p>
-                        </div>
-                    </div>
-                </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 w-full max-w-3xl px-4"
+                data-suggestion-grid>
             </div>
         </div>
     </template>
@@ -462,6 +459,175 @@
         const DEFAULT_API_ENDPOINT = 'https://poornima-oracle.onrender.com/api/chat';
         const HISTORY_STORAGE_KEY = 'poornimaOracleConversationHistory';
         const DEMO_MODE_STORAGE_KEY = 'poornimaOracleDemoMode';
+        const AUTO_READ_STORAGE_KEY = 'poornimaOracleAutoRead';
+        const PROMPT_COLOR_CLASSES = {
+            cyan: {
+                border: 'hover:border-cyan-500/30',
+                bg: 'bg-cyan-500/10',
+                text: 'text-cyan-400',
+                hoverText: 'group-hover:text-cyan-300',
+            },
+            rose: {
+                border: 'hover:border-rose-500/30',
+                bg: 'bg-rose-500/10',
+                text: 'text-rose-400',
+                hoverText: 'group-hover:text-rose-300',
+            },
+            amber: {
+                border: 'hover:border-amber-500/30',
+                bg: 'bg-amber-500/10',
+                text: 'text-amber-400',
+                hoverText: 'group-hover:text-amber-300',
+            },
+            emerald: {
+                border: 'hover:border-emerald-500/30',
+                bg: 'bg-emerald-500/10',
+                text: 'text-emerald-400',
+                hoverText: 'group-hover:text-emerald-300',
+            },
+        };
+        const ALL_PROMPTS = [
+            {
+                title: 'Anti-Ragging',
+                description: 'Policy and reporting',
+                icon: 'shield',
+                color: 'cyan',
+                prompt: 'What is Poornima University anti-ragging policy, and what should a student do to report an incident?',
+            },
+            {
+                title: 'Hostel Rules',
+                description: 'Prohibited items',
+                icon: 'ban',
+                color: 'rose',
+                prompt: 'What items are prohibited in Poornima hostel rooms, and why are those rules enforced?',
+            },
+            {
+                title: 'SCOPE',
+                description: 'Scholarship details',
+                icon: 'graduation-cap',
+                color: 'emerald',
+                prompt: 'Explain the SCOPE scholarship for online courses, including eligibility, benefits, and how to apply.',
+            },
+            {
+                title: 'Library',
+                description: 'Hours and services',
+                icon: 'library',
+                color: 'amber',
+                prompt: 'What are the library hours at Poornima, and what services can students use there?',
+            },
+            {
+                title: 'Attendance',
+                description: 'Minimum rules',
+                icon: 'clipboard-check',
+                color: 'cyan',
+                prompt: 'Explain Poornima attendance rules, minimum attendance requirements, and what happens if a student falls short.',
+            },
+            {
+                title: 'Back Exam',
+                description: 'Process overview',
+                icon: 'refresh-cw',
+                color: 'rose',
+                prompt: 'Explain the back exam process at Poornima, including forms, fees, schedule, and result handling.',
+            },
+            {
+                title: 'Fees',
+                description: 'Payment guidance',
+                icon: 'receipt',
+                color: 'emerald',
+                prompt: 'Summarize the Poornima fee structure and payment process for a student who wants clear next steps.',
+            },
+            {
+                title: 'Placements',
+                description: 'Campus hiring',
+                icon: 'briefcase',
+                color: 'amber',
+                prompt: 'How does the Poornima placement process work, from registration to interviews and offer letters?',
+            },
+            {
+                title: 'Campus Wi-Fi',
+                description: 'Access help',
+                icon: 'wifi',
+                color: 'cyan',
+                prompt: 'How can a Poornima student access campus Wi-Fi, and what should they do if login does not work?',
+            },
+            {
+                title: 'Labs',
+                description: 'Usage rules',
+                icon: 'microscope',
+                color: 'emerald',
+                prompt: 'Explain Poornima lab access, lab rules, and how students should prepare for practical sessions.',
+            },
+            {
+                title: 'Clubs',
+                description: 'Events and activities',
+                icon: 'calendar-days',
+                color: 'amber',
+                prompt: 'What clubs and events can Poornima students join, and how should a fresher get started?',
+            },
+            {
+                title: 'Canteen',
+                description: 'Food options',
+                icon: 'utensils',
+                color: 'rose',
+                prompt: 'Tell me about Poornima canteen options, timings, payment, and basic student etiquette.',
+            },
+            {
+                title: 'Sports',
+                description: 'Facilities and teams',
+                icon: 'trophy',
+                color: 'cyan',
+                prompt: 'What sports facilities, teams, and student participation options are available at Poornima?',
+            },
+            {
+                title: 'Transport',
+                description: 'Bus support',
+                icon: 'bus',
+                color: 'emerald',
+                prompt: 'Explain Poornima transport options, bus route support, passes, and whom students should contact for changes.',
+            },
+            {
+                title: 'Hostel Mess',
+                description: 'Meal timings',
+                icon: 'chef-hat',
+                color: 'amber',
+                prompt: 'What are Poornima hostel mess timings, common rules, and what should students do for meal-related issues?',
+            },
+            {
+                title: 'Faculty Hours',
+                description: 'Meet teachers',
+                icon: 'users',
+                color: 'rose',
+                prompt: 'How can students meet faculty during faculty hours or office hours for academic help at Poornima?',
+            },
+            {
+                title: 'Registration',
+                description: 'Courses and forms',
+                icon: 'list-checks',
+                color: 'cyan',
+                prompt: 'Explain the Poornima course registration process, important forms, deadlines, and common mistakes to avoid.',
+            },
+            {
+                title: 'Late Work',
+                description: 'Submission policy',
+                icon: 'clock',
+                color: 'rose',
+                prompt: 'What is the late submission process at Poornima, and how should a student request an extension properly?',
+            },
+            {
+                title: 'Alumni',
+                description: 'Network benefits',
+                icon: 'network',
+                color: 'emerald',
+                prompt: 'How can Poornima students use the alumni network for mentoring, internships, placements, and career guidance?',
+            },
+            {
+                title: 'Wellbeing',
+                description: 'Counseling and advice',
+                icon: 'heart-handshake',
+                color: 'amber',
+                prompt: 'How can students access mental health counseling at Poornima, and give one short practical piece of student advice for today.',
+            },
+        ];
 
         function getDefaultApiEndpoint() {
             return DEFAULT_API_ENDPOINT;
@@ -486,6 +652,12 @@
         let apiEndpoint = ensureApiEndpoint();
         let isLoading = false;
         let isSidebarCollapsed = false;
+        let speechRecognition = null;
+        let isListening = false;
+        let autoReadEnabled = localStorage.getItem(AUTO_READ_STORAGE_KEY) === 'true';
+        let speechUserGestureUnlocked = false;
+        let currentSpeechMessageId = '';
+        let currentSpeechUtterance = null;
 
         window.addEventListener('load', () => {
             apiEndpoint = ensureApiEndpoint();
@@ -494,6 +666,7 @@
             if (!restoreConversation()) {
                 renderWelcomeScreen();
             }
+            initializeVoiceFeatures();
             refreshIcons();
 
             // Focus input on desktop only
@@ -543,6 +716,8 @@
 
         function startNewChat() {
             // 1. Reset State
+            stopSpeechRecognition();
+            stopCurrentSpeech();
             chatStarted = false;
             messageCount = 0;
             conversationHistory = [];
@@ -600,7 +775,7 @@
         function sendSuggestion(text) {
             document.getElementById('messageInput').value = text;
             adjustTextareaHeight(document.getElementById('messageInput'));
-            sendMessage();
+            sendMessage({ allowSpeech: true });
         }
 
         function adjustTextareaHeight(el) {
@@ -611,13 +786,232 @@
         function handleKeyPress(event) {
             if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
-                sendMessage();
+                sendMessage({ allowSpeech: true });
             }
         }
 
+        // --- Voice Integration ---
+        function initializeVoiceFeatures() {
+            updateAutoReadToggle();
+
+            const micButton = document.getElementById('micButton');
+            if (!getSpeechRecognitionConstructor() && micButton) {
+                micButton.classList.add('hidden');
+                micButton.setAttribute('aria-hidden', 'true');
+            }
+
+            const autoReadToggle = document.getElementById('autoReadToggle');
+            if (!canUseSpeechSynthesis() && autoReadToggle) {
+                autoReadToggle.classList.add('hidden');
+                autoReadToggle.setAttribute('aria-hidden', 'true');
+            }
+        }
+
+        function getSpeechRecognitionConstructor() {
+            return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+        }
+
+        function toggleSpeechRecognition() {
+            if (isListening) {
+                stopSpeechRecognition();
+                return;
+            }
+
+            const RecognitionCtor = getSpeechRecognitionConstructor();
+            const micButton = document.getElementById('micButton');
+            if (!RecognitionCtor) {
+                if (micButton) {
+                    micButton.classList.add('hidden');
+                    micButton.setAttribute('aria-hidden', 'true');
+                }
+                return;
+            }
+
+            if (!speechRecognition) {
+                speechRecognition = new RecognitionCtor();
+                speechRecognition.continuous = false;
+                speechRecognition.interimResults = false;
+                speechRecognition.lang = 'en-IN';
+
+                speechRecognition.onstart = () => setListeningState(true);
+                speechRecognition.onend = () => setListeningState(false);
+                speechRecognition.onspeechend = () => {
+                    if (isListening) {
+                        speechRecognition.stop();
+                    }
+                };
+                speechRecognition.onerror = (event) => {
+                    console.warn('Speech recognition error:', event.error || event);
+                    setListeningState(false);
+                };
+                speechRecognition.onresult = (event) => {
+                    const transcript = Array.from(event.results || [])
+                        .map(result => result?.[0]?.transcript || '')
+                        .join(' ')
+                        .trim();
+                    appendTranscriptToInput(transcript);
+                };
+            }
+
+            try {
+                speechRecognition.start();
+            } catch (error) {
+                console.warn('Speech recognition could not start:', error);
+                setListeningState(false);
+            }
+        }
+
+        function stopSpeechRecognition() {
+            if (speechRecognition && isListening) {
+                try {
+                    speechRecognition.stop();
+                } catch (error) {
+                    console.warn('Speech recognition could not stop:', error);
+                }
+            }
+            setListeningState(false);
+        }
+
+        function setListeningState(listening) {
+            isListening = listening;
+            const micButton = document.getElementById('micButton');
+            if (!micButton) return;
+
+            micButton.classList.toggle('mic-listening', listening);
+            micButton.setAttribute('aria-pressed', listening ? 'true' : 'false');
+            micButton.setAttribute('aria-label', listening ? 'Stop voice input' : 'Start voice input');
+            micButton.title = listening ? 'Listening...' : 'Start voice input';
+        }
+
+        function appendTranscriptToInput(transcript) {
+            if (!transcript) return;
+
+            const input = document.getElementById('messageInput');
+            const needsSpace = input.value && !/\s$/.test(input.value);
+            input.value = `${input.value}${needsSpace ? ' ' : ''}${transcript}`;
+            adjustTextareaHeight(input);
+            input.focus();
+        }
+
+        function canUseSpeechSynthesis() {
+            return Boolean(window.speechSynthesis && typeof window.SpeechSynthesisUtterance === 'function');
+        }
+
+        function toggleAutoRead() {
+            if (!canUseSpeechSynthesis()) return;
+
+            speechUserGestureUnlocked = true;
+            autoReadEnabled = !autoReadEnabled;
+            localStorage.setItem(AUTO_READ_STORAGE_KEY, autoReadEnabled ? 'true' : 'false');
+            updateAutoReadToggle();
+
+            if (!autoReadEnabled) {
+                stopCurrentSpeech();
+            }
+        }
+
+        function updateAutoReadToggle() {
+            const toggle = document.getElementById('autoReadToggle');
+            if (!toggle) return;
+
+            toggle.setAttribute('aria-pressed', autoReadEnabled ? 'true' : 'false');
+            toggle.setAttribute(
+                'aria-label',
+                autoReadEnabled ? 'Turn off auto-read AI answers' : 'Turn on auto-read AI answers'
+            );
+            toggle.title = autoReadEnabled ? 'Auto-read is on' : 'Auto-read is off';
+        }
+
+        function toggleMessageSpeech(messageId) {
+            speechUserGestureUnlocked = true;
+
+            if (currentSpeechMessageId === messageId) {
+                stopCurrentSpeech();
+                return;
+            }
+
+            speakAssistantMessage(messageId);
+        }
+
+        function maybeAutoReadAssistantMessage(messageId) {
+            if (!autoReadEnabled || !speechUserGestureUnlocked) return;
+            speakAssistantMessage(messageId);
+        }
+
+        function speakAssistantMessage(messageId) {
+            if (!canUseSpeechSynthesis()) return;
+
+            const message = conversationHistory.find(item => item.id === messageId && item.role === 'assistant');
+            if (!message) return;
+
+            const speechText = getReadableSpeechText(message.content);
+            if (!speechText) return;
+
+            stopCurrentSpeech();
+
+            const utterance = new SpeechSynthesisUtterance(speechText);
+            utterance.lang = 'en-IN';
+            utterance.rate = 1;
+            utterance.pitch = 1;
+            currentSpeechMessageId = messageId;
+            currentSpeechUtterance = utterance;
+            updateSpeechButton(messageId, true);
+
+            utterance.onend = () => finishCurrentSpeech(messageId, utterance);
+            utterance.onerror = () => finishCurrentSpeech(messageId, utterance);
+            window.speechSynthesis.speak(utterance);
+        }
+
+        function stopCurrentSpeech() {
+            if (!canUseSpeechSynthesis()) return;
+
+            const previousMessageId = currentSpeechMessageId;
+            currentSpeechMessageId = '';
+            currentSpeechUtterance = null;
+            window.speechSynthesis.cancel();
+
+            if (previousMessageId) {
+                updateSpeechButton(previousMessageId, false);
+            }
+        }
+
+        function finishCurrentSpeech(messageId, utterance) {
+            if (currentSpeechUtterance !== utterance) return;
+
+            currentSpeechMessageId = '';
+            currentSpeechUtterance = null;
+            updateSpeechButton(messageId, false);
+        }
+
+        function updateSpeechButton(messageId, speaking) {
+            const button = document.querySelector(`[data-speech-for="${CSS.escape(messageId)}"]`);
+            if (!button) return;
+
+            button.setAttribute('aria-pressed', speaking ? 'true' : 'false');
+            button.setAttribute('aria-label', speaking ? 'Stop reading response aloud' : 'Read response aloud');
+            button.innerHTML = `<i data-lucide="${speaking ? 'volume-x' : 'volume-2'}" class="w-4 h-4"></i>`;
+            refreshIcons();
+        }
+
+        function getReadableSpeechText(text) {
+            return String(text || '')
+                .replace(/```[\s\S]*?```/g, ' ')
+                .replace(/`([^`]+)`/g, '$1')
+                .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+                .replace(/^#{1,6}\s+/gm, '')
+                .replace(/^[\s>*-]+/gm, '')
+                .replace(/[*_~|]+/g, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+
         // --- Chat Logic ---
-        async function sendMessage() {
+        async function sendMessage(options = {}) {
             if (isLoading) return;
+
+            if (options.allowSpeech) {
+                speechUserGestureUnlocked = true;
+            }
 
             const input = document.getElementById('messageInput');
             const message = input.value.trim();
@@ -685,6 +1079,7 @@
                 });
                 saveConversationHistory();
                 refreshIcons();
+                maybeAutoReadAssistantMessage(assistantId);
 
             } catch (err) {
                 assistantShell.wrapper.remove();
@@ -809,7 +1204,39 @@
 
         function renderWelcomeScreen() {
             const template = document.getElementById('welcomeTemplate');
-            document.getElementById('chatContainer').appendChild(template.content.cloneNode(true));
+            const welcomeScreen = template.content.cloneNode(true);
+            const suggestionGrid = welcomeScreen.querySelector('[data-suggestion-grid]');
+            suggestionGrid.innerHTML = shufflePrompts(ALL_PROMPTS).slice(0, 4).map(createSuggestionCard).join('');
+            document.getElementById('chatContainer').appendChild(welcomeScreen);
+            refreshIcons();
+        }
+
+        function shufflePrompts(prompts) {
+            const shuffled = [...prompts];
+            for (let i = shuffled.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
+            return shuffled;
+        }
+
+        function createSuggestionCard(data) {
+            const colorClasses = PROMPT_COLOR_CLASSES[data.color] || PROMPT_COLOR_CLASSES.cyan;
+            const promptValue = escapeHtml(JSON.stringify(data.prompt));
+
+            return `
+                <div onclick="sendSuggestion(${promptValue})"
+                    class="glass p-4 rounded-xl cursor-pointer hover:bg-white/5 ${colorClasses.border} transition-all group active:scale-98 touch-manipulation">
+                    <div class="flex items-start gap-3">
+                        <div class="p-2 ${colorClasses.bg} rounded-lg ${colorClasses.text} ${colorClasses.hoverText} shrink-0">
+                            <i data-lucide="${escapeHtml(data.icon)}" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-semibold text-zinc-200 text-sm">${escapeHtml(data.title)}</h3>
+                            <p class="text-xs text-zinc-500 mt-1">${escapeHtml(data.description)}</p>
+                        </div>
+                    </div>
+                </div>`;
         }
 
         function createMessageId(prefix) {
@@ -983,9 +1410,15 @@
 
             const upPressed = selectedRating === 'up' ? 'true' : 'false';
             const downPressed = selectedRating === 'down' ? 'true' : 'false';
+            const speechControl = canUseSpeechSynthesis()
+                ? `<button type="button" class="speech-button inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/10 hover:text-white transition" aria-label="Read response aloud" aria-pressed="false" data-speech-for="${escapeHtml(messageId)}" onclick="toggleMessageSpeech('${escapeHtml(messageId)}')">
+                        <i data-lucide="volume-2" class="w-4 h-4"></i>
+                    </button>`
+                : '';
 
             return `
                 <div class="mt-3 flex items-center gap-2 text-zinc-500" data-feedback-for="${escapeHtml(messageId)}">
+                    ${speechControl}
                     <button type="button" class="feedback-button inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/10 hover:text-white transition" aria-label="Helpful response" aria-pressed="${upPressed}" onclick="submitFeedback('${escapeHtml(messageId)}', 'up')">
                         <i data-lucide="thumbs-up" class="w-4 h-4"></i>
                     </button>
