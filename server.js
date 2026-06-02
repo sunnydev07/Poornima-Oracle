@@ -1,8 +1,11 @@
 require('dotenv').config();
 
+const crypto = require('crypto');
 const path = require('path');
 const express = require('express');
+const compression = require('compression');
 const cors = require('cors');
+const NodeCache = require('node-cache');
 const { GoogleGenAI } = require('@google/genai');
 const { Pinecone } = require('@pinecone-database/pinecone');
 
@@ -26,6 +29,14 @@ const embeddingModel = process.env.GEMINI_EMBEDDING_MODEL
 
 const ai = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
 const pinecone = pineconeApiKey ? new Pinecone({ apiKey: pineconeApiKey }) : null;
+const queryCacheTtlSeconds = Number.parseInt(process.env.QUERY_CACHE_TTL_SECONDS, 10);
+const queryCache = new NodeCache({
+  stdTTL: Number.isFinite(queryCacheTtlSeconds) && queryCacheTtlSeconds > 0
+    ? queryCacheTtlSeconds
+    : 3600,
+  checkperiod: 120,
+  useClones: false,
+});
 
 function validateApiKeyFormat(key, name, minLength) {
   if (!key) return { valid: false, reason: 'not set or empty' };
@@ -64,6 +75,7 @@ const MAX_HISTORY_MESSAGES = 4;
 const MAX_MESSAGE_CHARS = 2000;
 const MAX_CONTEXT_CHARS = 4000;
 
+app.use(compression());
 app.use(cors(DEFAULT_CORS_ORIGIN ? { origin: DEFAULT_CORS_ORIGIN } : undefined));
 app.use(express.json({ limit: '32kb' }));
 
@@ -233,6 +245,30 @@ function buildSources(matches) {
 function writeSse(res, event, payload) {
   res.write(`event: ${event}\n`);
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  res.flush?.();
+}
+
+function setSseHeaders(res) {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+}
+
+function getQueryCacheKey(message) {
+  return crypto.createHash('sha256').update(message, 'utf8').digest('hex');
+}
+
+function writeCachedResponse(res, cachedResponse) {
+  setSseHeaders(res);
+  writeSse(res, 'sources', { sources: cachedResponse.sources });
+  writeSse(res, 'token', { text: cachedResponse.answer });
+  writeSse(res, 'done', {
+    answer: cachedResponse.answer,
+    sources: cachedResponse.sources,
+    cached: true,
+  });
+  res.end();
 }
 
 function buildSystemInstruction(contextSnippets) {
@@ -253,6 +289,10 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
+app.get('/styles.css', (req, res) => {
+  res.sendFile(path.join(__dirname, 'styles.css'));
+});
+
 app.get('/api/health', (req, res) => {
   res.json({
     ok: true,
@@ -263,12 +303,6 @@ app.get('/api/health', (req, res) => {
 
 app.post('/api/chat', async (req, res) => {
   try {
-    if (missingEnvVars.length > 0 || !ai || !pinecone) {
-      return res.status(503).json({
-        error: `Server is missing required environment variables: ${missingEnvVars.join(', ')}.`,
-      });
-    }
-
     const message = sanitizeText(req.body?.message);
     const history = Array.isArray(req.body?.history) ? req.body.history : [];
 
@@ -282,12 +316,22 @@ app.post('/api/chat', async (req, res) => {
       });
     }
 
+    const queryCacheKey = getQueryCacheKey(message);
+    const cachedResponse = queryCache.get(queryCacheKey);
+    if (cachedResponse) {
+      console.log('Cache hit for query:', message.slice(0, 200));
+      return writeCachedResponse(res, cachedResponse);
+    }
+
+    if (missingEnvVars.length > 0 || !ai || !pinecone) {
+      return res.status(503).json({
+        error: `Server is missing required environment variables: ${missingEnvVars.join(', ')}.`,
+      });
+    }
+
     console.log('User query:', message.slice(0, 200));
 
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache, no-transform');
-    res.setHeader('Connection', 'keep-alive');
-    res.flushHeaders?.();
+    setSseHeaders(res);
 
     if (isAbusive(message)) {
       const answer = 'Arre yaar, itni bakwaas mat kar! Thoda dimag laga ke baat kar.';
@@ -350,6 +394,7 @@ app.post('/api/chat', async (req, res) => {
     }
 
     answer = sanitizeText(answer) || 'I could not generate a response. Please try again.';
+    queryCache.set(queryCacheKey, { answer, sources });
     writeSse(res, 'done', { answer, sources });
     res.end();
   } catch (error) {
