@@ -187,6 +187,54 @@ function buildContextSnippets(matches) {
     .slice(0, MAX_CONTEXT_CHARS);
 }
 
+function looksLikeUrl(value) {
+  return /^https?:\/\//i.test(sanitizeText(value));
+}
+
+function getFirstMetadataValue(metadata, keys) {
+  if (!metadata || typeof metadata !== 'object') {
+    return '';
+  }
+
+  for (const key of keys) {
+    const value = sanitizeText(metadata[key]);
+    if (value) {
+      return value;
+    }
+  }
+
+  return '';
+}
+
+function buildSources(matches) {
+  return matches
+    .map((match, index) => {
+      const metadata = match?.metadata || {};
+      const id = sanitizeText(match?.id) || `source-${index + 1}`;
+      const rawTitle = getFirstMetadataValue(metadata, [
+        'documentName',
+        'document',
+        'title',
+        'file',
+        'source',
+      ]);
+      const rawUrl = getFirstMetadataValue(metadata, ['url', 'link']);
+      const sourceValue = sanitizeText(metadata.source);
+      const url = rawUrl || (looksLikeUrl(sourceValue) ? sourceValue : '');
+      const title = rawTitle && !looksLikeUrl(rawTitle) ? rawTitle : id;
+      const score = typeof match?.score === 'number' ? Number(match.score.toFixed(4)) : null;
+
+      return { id, title, url, score };
+    })
+    .filter((source) => source.title || source.url)
+    .slice(0, 3);
+}
+
+function writeSse(res, event, payload) {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
 function buildSystemInstruction(contextSnippets) {
   return `You are "Poornima Oracle", the official AI assistant for the Poornima Group of Colleges (PU, PCE, PIET).
 
@@ -236,10 +284,17 @@ app.post('/api/chat', async (req, res) => {
 
     console.log('User query:', message.slice(0, 200));
 
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+
     if (isAbusive(message)) {
-      return res.json({
-        answer: 'Arre yaar, itni bakwaas mat kar! Thoda dimag laga ke baat kar.',
-      });
+      const answer = 'Arre yaar, itni bakwaas mat kar! Thoda dimag laga ke baat kar.';
+      writeSse(res, 'sources', { sources: [] });
+      writeSse(res, 'token', { text: answer });
+      writeSse(res, 'done', { answer, sources: [] });
+      return res.end();
     }
 
     const embedResponse = await ai.models.embedContent({
@@ -252,9 +307,8 @@ app.post('/api/chat', async (req, res) => {
 
     const queryVector = embedResponse?.embeddings?.[0]?.values || [];
     if (!Array.isArray(queryVector) || queryVector.length === 0) {
-      return res.status(502).json({
-        error: 'Failed to generate an embedding for the query.',
-      });
+      writeSse(res, 'error', { error: 'Failed to generate an embedding for the query.' });
+      return res.end();
     }
 
     const index = pinecone.index(pineconeIndexName);
@@ -267,8 +321,11 @@ app.post('/api/chat', async (req, res) => {
     const matches = Array.isArray(queryResponse?.matches) ? queryResponse.matches : [];
     const contextSnippets = buildContextSnippets(matches);
     const historyContext = buildHistoryContext(history);
+    const sources = buildSources(matches);
 
-    const aiResponse = await ai.models.generateContent({
+    writeSse(res, 'sources', { sources });
+
+    const stream = await ai.models.generateContentStream({
       model: 'gemini-2.5-flash',
       config: {
         systemInstruction: buildSystemInstruction(contextSnippets),
@@ -281,19 +338,63 @@ app.post('/api/chat', async (req, res) => {
       ],
     });
 
-    const answer = sanitizeText(aiResponse?.text) || 'I could not generate a response. Please try again.';
-    res.json({ answer });
+    let answer = '';
+    for await (const chunk of stream) {
+      const text = typeof chunk?.text === 'string' ? chunk.text : '';
+      if (!text) {
+        continue;
+      }
+
+      answer += text;
+      writeSse(res, 'token', { text });
+    }
+
+    answer = sanitizeText(answer) || 'I could not generate a response. Please try again.';
+    writeSse(res, 'done', { answer, sources });
+    res.end();
   } catch (error) {
     const apiKeyError = detectApiKeyError(error);
     if (apiKeyError.isApiKeyError) {
       logApiKeyError(apiKeyError.service, apiKeyError.reason, error);
+      if (res.headersSent) {
+        writeSse(res, 'error', {
+          error: `API key error with ${apiKeyError.service}: ${apiKeyError.reason}. Please check server console for details.`,
+        });
+        return res.end();
+      }
+
       return res.status(401).json({
         error: `API key error with ${apiKeyError.service}: ${apiKeyError.reason}. Please check server console for details.`,
       });
     }
     console.error('Error in /api/chat:', error);
+    if (res.headersSent) {
+      writeSse(res, 'error', { error: 'Failed to process the query.' });
+      return res.end();
+    }
+
     res.status(500).json({ error: 'Failed to process the query.' });
   }
+});
+
+app.post('/api/feedback', (req, res) => {
+  const rating = sanitizeText(req.body?.rating);
+
+  if (!['up', 'down'].includes(rating)) {
+    return res.status(400).json({ error: 'Feedback rating must be "up" or "down".' });
+  }
+
+  const feedback = {
+    messageId: sanitizeText(req.body?.messageId),
+    rating,
+    question: sanitizeText(req.body?.question).slice(0, MAX_MESSAGE_CHARS),
+    answer: sanitizeText(req.body?.answer).slice(0, MAX_CONTEXT_CHARS),
+    sources: Array.isArray(req.body?.sources) ? req.body.sources.slice(0, 5) : [],
+    createdAt: new Date().toISOString(),
+  };
+
+  console.log('Chat feedback:', JSON.stringify(feedback));
+  res.json({ ok: true });
 });
 
 const server = app.listen(PORT, () => {

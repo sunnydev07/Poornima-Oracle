@@ -13,6 +13,10 @@
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
 
+    <!-- Markdown parsing and sanitization -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.3/dist/purify.min.js"></script>
+
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
@@ -153,6 +157,113 @@
 
         .collapsed .sidebar-icon {
             margin-right: 0;
+        }
+
+        .ai-markdown {
+            overflow-wrap: anywhere;
+        }
+
+        .ai-markdown p {
+            margin: 0.45rem 0;
+            line-height: 1.7;
+        }
+
+        .ai-markdown p:first-child {
+            margin-top: 0;
+        }
+
+        .ai-markdown p:last-child {
+            margin-bottom: 0;
+        }
+
+        .ai-markdown strong {
+            color: #ffffff;
+            font-weight: 700;
+        }
+
+        .ai-markdown em {
+            color: #d4d4d8;
+        }
+
+        .ai-markdown ul,
+        .ai-markdown ol {
+            margin: 0.6rem 0;
+            padding-left: 1.25rem;
+        }
+
+        .ai-markdown ul {
+            list-style: disc;
+        }
+
+        .ai-markdown ol {
+            list-style: decimal;
+        }
+
+        .ai-markdown li {
+            margin: 0.25rem 0;
+            line-height: 1.6;
+        }
+
+        .ai-markdown code {
+            background: rgba(244, 63, 94, 0.12);
+            border: 1px solid rgba(244, 63, 94, 0.18);
+            border-radius: 0.35rem;
+            color: #fda4af;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 0.9em;
+            padding: 0.08rem 0.3rem;
+        }
+
+        .ai-markdown pre {
+            background: rgba(9, 9, 11, 0.78);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 0.8rem;
+            margin: 0.75rem 0;
+            overflow-x: auto;
+            padding: 0.8rem;
+        }
+
+        .ai-markdown pre code {
+            background: transparent;
+            border: 0;
+            color: #e4e4e7;
+            padding: 0;
+        }
+
+        .ai-markdown blockquote {
+            border-left: 3px solid rgba(34, 211, 238, 0.55);
+            color: #d4d4d8;
+            margin: 0.75rem 0;
+            padding-left: 0.85rem;
+        }
+
+        .ai-markdown table {
+            border-collapse: collapse;
+            display: block;
+            margin: 0.8rem 0;
+            max-width: 100%;
+            overflow-x: auto;
+            width: max-content;
+        }
+
+        .ai-markdown th,
+        .ai-markdown td {
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            padding: 0.5rem 0.65rem;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        .ai-markdown th {
+            background: rgba(34, 211, 238, 0.1);
+            color: #cffafe;
+            font-weight: 700;
+        }
+
+        .feedback-button[aria-pressed="true"] {
+            background: rgba(34, 211, 238, 0.16);
+            border-color: rgba(34, 211, 238, 0.45);
+            color: #67e8f9;
         }
     </style>
 </head>
@@ -368,9 +479,20 @@
     </template>
 
     <script>
-        lucide.createIcons();
+        function refreshIcons() {
+            if (window.lucide?.createIcons) {
+                lucide.createIcons();
+            }
+        }
+
+        refreshIcons();
+        if (window.marked) {
+            marked.setOptions({ gfm: true, breaks: true });
+        }
 
         const DEFAULT_API_ENDPOINT = 'https://poornima-oracle.onrender.com/api/chat';
+        const HISTORY_STORAGE_KEY = 'poornimaOracleConversationHistory';
+        const DEMO_MODE_STORAGE_KEY = 'poornimaOracleDemoMode';
 
         function getDefaultApiEndpoint() {
             return DEFAULT_API_ENDPOINT;
@@ -391,7 +513,7 @@
         let chatStarted = false;
         let messageCount = 0;
         let conversationHistory = [];
-        let demoMode = false;
+        let demoMode = localStorage.getItem(DEMO_MODE_STORAGE_KEY) === 'true';
         let apiEndpoint = ensureApiEndpoint();
         let isLoading = false;
         let isSidebarCollapsed = false;
@@ -400,10 +522,10 @@
             apiEndpoint = ensureApiEndpoint();
             document.getElementById('apiEndpoint').value = apiEndpoint;
 
-            // Initial render of welcome screen
-            const template = document.getElementById('welcomeTemplate');
-            document.getElementById('chatContainer').appendChild(template.content.cloneNode(true));
-            lucide.createIcons();
+            if (!restoreConversation()) {
+                renderWelcomeScreen();
+            }
+            refreshIcons();
 
             // Focus input on desktop only
             if (window.innerWidth > 768) {
@@ -456,12 +578,12 @@
             messageCount = 0;
             conversationHistory = [];
             isLoading = false;
+            localStorage.removeItem(HISTORY_STORAGE_KEY);
 
             // 2. Reset UI
             const chatContainer = document.getElementById('chatContainer');
             chatContainer.innerHTML = '';
-            const template = document.getElementById('welcomeTemplate');
-            chatContainer.appendChild(template.content.cloneNode(true));
+            renderWelcomeScreen();
 
             // 3. Reset Input
             const input = document.getElementById('messageInput');
@@ -474,7 +596,7 @@
             sendBtn.innerHTML = '<i data-lucide="send" class="w-5 h-5"></i>';
 
             // 5. Refresh Icons
-            lucide.createIcons();
+            refreshIcons();
 
             // 6. Close Mobile Sidebar (Important fix for mobile)
             if (window.innerWidth < 768) {
@@ -494,6 +616,7 @@
             const endpoint = document.getElementById('apiEndpoint').value.trim() || getDefaultApiEndpoint();
             apiEndpoint = endpoint;
             demoMode = false;
+            localStorage.setItem(DEMO_MODE_STORAGE_KEY, 'false');
             localStorage.setItem('geminiApiEndpoint', endpoint);
             document.getElementById('apiModal').classList.add('hidden');
         }
@@ -501,6 +624,7 @@
         function skipSetup() {
             demoMode = true;
             apiEndpoint = '';
+            localStorage.setItem(DEMO_MODE_STORAGE_KEY, 'true');
             document.getElementById('apiModal').classList.add('hidden');
         }
 
@@ -544,76 +668,69 @@
             sendBtn.innerHTML = '<div class="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin"></div>';
 
             // Add User Message
-            conversationHistory.push({ role: 'user', content: String(message) });
-            const userMsgHTML = `
-                <div class="flex justify-end mb-6 animate-slide-in">
-                    <div class="max-w-[85%] md:max-w-[70%] bg-white text-black p-3 md:p-4 rounded-2xl rounded-br-sm shadow-lg">
-                        <p class="text-sm md:text-base leading-relaxed font-medium">${escapeHtml(message)}</p>
-                    </div>
-                    <div class="w-8 h-8 rounded-lg bg-white flex items-center justify-center ml-2 md:ml-3 mt-auto mb-1 shadow-md shrink-0">
-                        <i data-lucide="user" class="w-5 h-5 text-black"></i>
-                    </div>
-                </div>`;
-            chatContainer.insertAdjacentHTML('beforeend', userMsgHTML);
-            lucide.createIcons();
+            const userMessage = { id: createMessageId('user'), role: 'user', content: String(message) };
+            conversationHistory.push(userMessage);
+            saveConversationHistory();
+            renderUserMessage(userMessage);
+            refreshIcons();
 
             input.value = '';
             input.style.height = 'auto';
             chatContainer.scrollTop = chatContainer.scrollHeight;
 
-            // Loading Indicator
-            const typingId = `typing-${messageCount}`;
-            const loadingHTML = `
-                <div id="${typingId}" class="flex justify-start mb-6 animate-slide-in">
-                    <div class="w-8 h-8 rounded-lg bg-zinc-800 border border-white/10 flex items-center justify-center mr-2 md:mr-3 mt-auto mb-1 shrink-0">
-                        <i data-lucide="bot" class="w-5 h-5 text-cyan-400"></i>
-                    </div>
-                    <div class="max-w-[85%] md:max-w-[70%] bg-zinc-800/80 border border-white/5 text-zinc-200 p-4 rounded-2xl rounded-bl-sm">
-                        <div class="flex items-center gap-1.5 h-6"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>
-                    </div>
-                </div>`;
-            chatContainer.insertAdjacentHTML('beforeend', loadingHTML);
-            lucide.createIcons();
+            const assistantId = createMessageId('assistant');
+            const assistantShell = renderAssistantShell(assistantId);
+            const streamRenderer = createStreamRenderer(assistantShell.contentEl);
+            refreshIcons();
             chatContainer.scrollTop = chatContainer.scrollHeight;
 
             try {
-                let responseText;
+                let responsePayload;
                 if (demoMode || !apiEndpoint) {
-                    await new Promise(r => setTimeout(r, 1500));
-                    responseText = "I am currently in Demo Mode. Please configure a backend API endpoint.";
+                    responsePayload = await runDemoStream(streamRenderer);
                 } else {
-                    responseText = await callGeminiAPI(message);
+                    responsePayload = await callGeminiAPI(message, {
+                        onSources: (sources) => {
+                            assistantShell.sourcesEl.innerHTML = renderSourceChips(sources);
+                            chatContainer.scrollTop = chatContainer.scrollHeight;
+                        },
+                        onToken: (answer) => {
+                            streamRenderer(answer);
+                            chatContainer.scrollTop = chatContainer.scrollHeight;
+                        },
+                    });
                 }
 
-                document.getElementById(typingId).remove();
-                conversationHistory.push({ role: 'assistant', content: String(responseText) });
-
-                const aiMsgHTML = `
-                    <div class="flex justify-start mb-6 animate-slide-in">
-                        <div class="w-8 h-8 rounded-lg bg-zinc-800 border border-white/10 flex items-center justify-center mr-2 md:mr-3 mt-auto mb-1 shrink-0">
-                            <i data-lucide="bot" class="w-5 h-5 text-cyan-400"></i>
-                        </div>
-                        <div class="max-w-[85%] md:max-w-[70%] bg-zinc-800/80 border border-white/5 text-zinc-200 p-3 md:p-4 rounded-2xl rounded-bl-sm shadow-sm prose prose-invert prose-p:my-1 prose-headings:text-cyan-300 prose-strong:text-white prose-code:text-rose-300 prose-code:bg-rose-500/10 prose-code:px-1 prose-code:rounded text-sm md:text-base">
-                            ${formatMessage(responseText)}
-                        </div>
-                    </div>`;
-                chatContainer.insertAdjacentHTML('beforeend', aiMsgHTML);
-                lucide.createIcons();
+                const responseText = String(responsePayload.answer || '');
+                const sources = Array.isArray(responsePayload.sources) ? responsePayload.sources : [];
+                streamRenderer.flush(responseText);
+                assistantShell.sourcesEl.innerHTML = renderSourceChips(sources);
+                assistantShell.feedbackEl.innerHTML = renderFeedbackControls(assistantId);
+                conversationHistory.push({
+                    id: assistantId,
+                    role: 'assistant',
+                    content: responseText,
+                    sources,
+                    feedback: '',
+                    question: message,
+                });
+                saveConversationHistory();
+                refreshIcons();
 
             } catch (err) {
-                document.getElementById(typingId).remove();
+                assistantShell.wrapper.remove();
                 const errHTML = `<div class="flex justify-center mb-6"><div class="bg-rose-500/10 border border-rose-500/20 text-rose-400 px-4 py-2 rounded-xl text-sm">Error: ${escapeHtml(err.message)}</div></div>`;
                 chatContainer.insertAdjacentHTML('beforeend', errHTML);
             } finally {
                 isLoading = false;
                 sendBtn.disabled = false;
                 sendBtn.innerHTML = '<i data-lucide="send" class="w-5 h-5"></i>';
-                lucide.createIcons();
+                refreshIcons();
                 chatContainer.scrollTop = chatContainer.scrollHeight;
             }
         }
 
-        async function callGeminiAPI(message) {
+        async function callGeminiAPI(message, handlers = {}) {
             if (!apiEndpoint) {
                 apiEndpoint = ensureApiEndpoint();
             }
@@ -628,23 +745,355 @@
                 const txt = await resp.text().catch(() => null);
                 throw new Error(txt || `Request failed: ${resp.status}`);
             }
-            const data = await resp.json();
-            if (data?.answer) return String(data.answer);
-            if (data?.response) return String(data.response);
-            if (data?.text) return String(data.text);
-            if (data?.choices?.[0]?.message?.content) return String(data.choices[0].message.content);
-            return JSON.stringify(data);
+
+            const contentType = resp.headers.get('content-type') || '';
+            if (!contentType.includes('text/event-stream')) {
+                const data = await resp.json();
+                const answer = data?.answer || data?.response || data?.text || data?.choices?.[0]?.message?.content || JSON.stringify(data);
+                return { answer: String(answer), sources: Array.isArray(data?.sources) ? data.sources : [] };
+            }
+
+            const reader = resp.body?.getReader();
+            if (!reader) {
+                throw new Error('Streaming is not supported by this browser.');
+            }
+
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let answer = '';
+            let sources = [];
+            let donePayload = null;
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const events = buffer.split('\n\n');
+                buffer = events.pop() || '';
+
+                for (const eventBlock of events) {
+                    const event = parseSseEvent(eventBlock);
+                    if (!event) continue;
+
+                    if (event.event === 'sources') {
+                        sources = Array.isArray(event.data?.sources) ? event.data.sources : [];
+                        handlers.onSources?.(sources);
+                    } else if (event.event === 'token') {
+                        const token = typeof event.data?.text === 'string' ? event.data.text : '';
+                        answer += token;
+                        handlers.onToken?.(answer, token);
+                    } else if (event.event === 'done') {
+                        donePayload = event.data || {};
+                    } else if (event.event === 'error') {
+                        throw new Error(event.data?.error || 'Streaming request failed.');
+                    }
+                }
+            }
+
+            if (buffer.trim()) {
+                const event = parseSseEvent(buffer);
+                if (event?.event === 'done') {
+                    donePayload = event.data || {};
+                }
+            }
+
+            return {
+                answer: String(donePayload?.answer || answer),
+                sources: Array.isArray(donePayload?.sources) ? donePayload.sources : sources,
+            };
         }
 
-        function formatMessage(text) {
+        function parseSseEvent(block) {
+            const lines = block.split(/\r?\n/);
+            let event = 'message';
+            const dataLines = [];
+
+            for (const line of lines) {
+                if (line.startsWith('event:')) {
+                    event = line.slice(6).trim();
+                } else if (line.startsWith('data:')) {
+                    dataLines.push(line.slice(5).trimStart());
+                }
+            }
+
+            if (!dataLines.length) return null;
+
+            try {
+                return { event, data: JSON.parse(dataLines.join('\n')) };
+            } catch (error) {
+                throw new Error('Received malformed stream data.');
+            }
+        }
+
+        async function runDemoStream(render) {
+            const answer = 'I am currently in **Demo Mode**. Please configure a backend API endpoint to stream Poornima Oracle answers with citations.';
+            let rendered = '';
+            for (const token of answer.split(/(\s+)/)) {
+                rendered += token;
+                render(rendered);
+                await new Promise(resolve => window.setTimeout(resolve, 35));
+            }
+            render.flush(answer);
+            return { answer, sources: [] };
+        }
+
+        function renderWelcomeScreen() {
+            const template = document.getElementById('welcomeTemplate');
+            document.getElementById('chatContainer').appendChild(template.content.cloneNode(true));
+        }
+
+        function createMessageId(prefix) {
+            return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        }
+
+        function saveConversationHistory() {
+            localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(conversationHistory));
+        }
+
+        function loadConversationHistory() {
+            try {
+                const stored = JSON.parse(localStorage.getItem(HISTORY_STORAGE_KEY) || '[]');
+                if (!Array.isArray(stored)) return [];
+
+                let lastUserQuestion = '';
+                return stored
+                    .filter(item => item && typeof item.content === 'string')
+                    .map((item) => {
+                        const normalized = {
+                            ...item,
+                            id: item.id || createMessageId(item.role === 'assistant' ? 'assistant' : 'user'),
+                            sources: Array.isArray(item.sources) ? item.sources : [],
+                            feedback: item.feedback || '',
+                        };
+
+                        if (normalized.role === 'user') {
+                            lastUserQuestion = normalized.content;
+                        } else if (normalized.role === 'assistant' && !normalized.question) {
+                            normalized.question = lastUserQuestion;
+                        }
+
+                        return normalized;
+                    });
+            } catch (error) {
+                localStorage.removeItem(HISTORY_STORAGE_KEY);
+                return [];
+            }
+        }
+
+        function restoreConversation() {
+            const restored = loadConversationHistory();
+            if (!restored.length) {
+                return false;
+            }
+
+            conversationHistory = restored;
+            chatStarted = true;
+            messageCount = restored.length;
+
+            const chatContainer = document.getElementById('chatContainer');
+            chatContainer.innerHTML = '';
+
+            for (const message of restored) {
+                if (message.role === 'user') {
+                    renderUserMessage(message);
+                } else if (message.role === 'assistant') {
+                    renderAssistantMessage(message);
+                }
+            }
+
+            requestAnimationFrame(() => {
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            });
+            return true;
+        }
+
+        function renderUserMessage(message) {
+            const chatContainer = document.getElementById('chatContainer');
+            const userMsgHTML = `
+                <div class="flex justify-end mb-6 animate-slide-in" data-message-id="${escapeHtml(message.id || '')}">
+                    <div class="max-w-[85%] md:max-w-[70%] bg-white text-black p-3 md:p-4 rounded-2xl rounded-br-sm shadow-lg">
+                        <p class="text-sm md:text-base leading-relaxed font-medium">${escapeHtml(message.content)}</p>
+                    </div>
+                    <div class="w-8 h-8 rounded-lg bg-white flex items-center justify-center ml-2 md:ml-3 mt-auto mb-1 shadow-md shrink-0">
+                        <i data-lucide="user" class="w-5 h-5 text-black"></i>
+                    </div>
+                </div>`;
+            chatContainer.insertAdjacentHTML('beforeend', userMsgHTML);
+        }
+
+        function renderAssistantShell(messageId) {
+            const chatContainer = document.getElementById('chatContainer');
+            const aiMsgHTML = `
+                <div class="flex justify-start mb-6 animate-slide-in" data-message-id="${escapeHtml(messageId)}">
+                    <div class="w-8 h-8 rounded-lg bg-zinc-800 border border-white/10 flex items-center justify-center mr-2 md:mr-3 mt-auto mb-1 shrink-0">
+                        <i data-lucide="bot" class="w-5 h-5 text-cyan-400"></i>
+                    </div>
+                    <div class="max-w-[85%] md:max-w-[70%] bg-zinc-800/80 border border-white/5 text-zinc-200 p-3 md:p-4 rounded-2xl rounded-bl-sm shadow-sm text-sm md:text-base">
+                        <div class="ai-markdown" data-ai-content>
+                            <div class="flex items-center gap-1.5 h-6"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>
+                        </div>
+                        <div data-source-list></div>
+                        <div data-feedback-list></div>
+                    </div>
+                </div>`;
+            chatContainer.insertAdjacentHTML('beforeend', aiMsgHTML);
+            const wrapper = chatContainer.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`);
+            return {
+                wrapper,
+                contentEl: wrapper.querySelector('[data-ai-content]'),
+                sourcesEl: wrapper.querySelector('[data-source-list]'),
+                feedbackEl: wrapper.querySelector('[data-feedback-list]'),
+            };
+        }
+
+        function renderAssistantMessage(message) {
+            const messageId = message.id || createMessageId('assistant');
+            const shell = renderAssistantShell(messageId);
+            shell.contentEl.innerHTML = renderMarkdown(message.content);
+            shell.sourcesEl.innerHTML = renderSourceChips(message.sources);
+            shell.feedbackEl.innerHTML = renderFeedbackControls(messageId, message.feedback);
+            refreshIcons();
+        }
+
+        function createStreamRenderer(contentEl) {
+            let latestText = '';
+            let pendingFrame = false;
+
+            const render = (text) => {
+                latestText = text;
+                if (pendingFrame) return;
+
+                pendingFrame = true;
+                requestAnimationFrame(() => {
+                    contentEl.innerHTML = renderMarkdown(latestText);
+                    pendingFrame = false;
+                });
+            };
+
+            render.flush = (text) => {
+                latestText = text;
+                contentEl.innerHTML = renderMarkdown(latestText);
+            };
+
+            return render;
+        }
+
+        function renderMarkdown(text) {
             if (!text) return '<p class="text-zinc-500 italic">No response</p>';
-            const escapedText = escapeHtml(String(text)).replace(/\r\n/g, '\n');
-            return escapedText
-                .replace(/\n\n/g, '<br/><br/>')
-                .replace(/\n/g, '<br/>')
-                .replace(/`([^`]+)`/g, '<code class="font-mono text-sm">$1</code>')
-                .replace(/\*\*([^*]+)\*\*/g, '<strong class="font-bold text-white">$1</strong>')
-                .replace(/\*([^*]+)\*/g, '<em class="italic text-zinc-300">$1</em>');
+
+            if (window.marked && window.DOMPurify) {
+                const rawHtml = marked.parse(String(text));
+                return DOMPurify.sanitize(rawHtml, {
+                    ADD_ATTR: ['target', 'rel'],
+                });
+            }
+
+            return escapeHtml(String(text)).replace(/\r\n/g, '\n').replace(/\n/g, '<br/>');
+        }
+
+        function renderSourceChips(sources) {
+            if (!Array.isArray(sources) || !sources.length) {
+                return '';
+            }
+
+            const chips = sources.map((source, index) => {
+                const label = escapeHtml(source?.title || source?.id || `Source ${index + 1}`);
+                const score = typeof source?.score === 'number' ? ` ${Math.round(source.score * 100)}%` : '';
+                const title = `${label}${score}`;
+                const url = getSafeUrl(source?.url);
+
+                if (url) {
+                    return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="inline-flex max-w-full items-center gap-1 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2.5 py-1 text-[11px] font-medium text-cyan-200 hover:border-cyan-300/50 hover:bg-cyan-400/15 transition"><i data-lucide="external-link" class="w-3 h-3 shrink-0"></i><span class="truncate">${title}</span></a>`;
+                }
+
+                return `<span class="inline-flex max-w-full items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-medium text-zinc-300"><i data-lucide="file-text" class="w-3 h-3 shrink-0"></i><span class="truncate">${title}</span></span>`;
+            }).join('');
+
+            return `<div class="mt-3 flex flex-wrap gap-2 border-t border-white/10 pt-3">${chips}</div>`;
+        }
+
+        function getSafeUrl(value) {
+            if (typeof value !== 'string' || !value.trim()) {
+                return '';
+            }
+
+            try {
+                const url = new URL(value.trim(), window.location.href);
+                return ['http:', 'https:'].includes(url.protocol) ? url.toString() : '';
+            } catch (error) {
+                return '';
+            }
+        }
+
+        function renderFeedbackControls(messageId, selectedRating = '') {
+            if (!messageId) return '';
+
+            const upPressed = selectedRating === 'up' ? 'true' : 'false';
+            const downPressed = selectedRating === 'down' ? 'true' : 'false';
+
+            return `
+                <div class="mt-3 flex items-center gap-2 text-zinc-500" data-feedback-for="${escapeHtml(messageId)}">
+                    <button type="button" class="feedback-button inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/10 hover:text-white transition" aria-label="Helpful response" aria-pressed="${upPressed}" onclick="submitFeedback('${escapeHtml(messageId)}', 'up')">
+                        <i data-lucide="thumbs-up" class="w-4 h-4"></i>
+                    </button>
+                    <button type="button" class="feedback-button inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/10 hover:text-white transition" aria-label="Unhelpful response" aria-pressed="${downPressed}" onclick="submitFeedback('${escapeHtml(messageId)}', 'down')">
+                        <i data-lucide="thumbs-down" class="w-4 h-4"></i>
+                    </button>
+                </div>`;
+        }
+
+        async function submitFeedback(messageId, rating) {
+            const message = conversationHistory.find(item => item.id === messageId && item.role === 'assistant');
+            if (!message) return;
+
+            message.feedback = rating;
+            saveConversationHistory();
+            updateFeedbackButtons(messageId, rating);
+
+            if (demoMode) return;
+
+            try {
+                await fetch(getFeedbackEndpoint(), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        messageId,
+                        rating,
+                        question: message.question || '',
+                        answer: message.content || '',
+                        sources: message.sources || [],
+                    }),
+                });
+            } catch (error) {
+                console.warn('Feedback could not be sent:', error);
+            }
+        }
+
+        function updateFeedbackButtons(messageId, rating) {
+            const wrapper = document.querySelector(`[data-feedback-for="${CSS.escape(messageId)}"]`);
+            if (!wrapper) return;
+
+            wrapper.querySelectorAll('.feedback-button').forEach((button) => {
+                const label = button.getAttribute('aria-label') || '';
+                const isSelected = rating === 'up' ? label.includes('Helpful') : label.includes('Unhelpful');
+                button.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+            });
+        }
+
+        function getFeedbackEndpoint() {
+            const endpoint = apiEndpoint || ensureApiEndpoint();
+            try {
+                const url = new URL(endpoint, window.location.href);
+                if (/\/api\/chat\/?$/.test(url.pathname)) {
+                    url.pathname = url.pathname.replace(/\/api\/chat\/?$/, '/api/feedback');
+                } else {
+                    url.pathname = '/api/feedback';
+                }
+                return url.toString();
+            } catch (error) {
+                return '/api/feedback';
+            }
         }
 
         function escapeHtml(text) {
