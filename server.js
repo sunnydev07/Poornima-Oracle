@@ -5,6 +5,9 @@ const path = require('path');
 const express = require('express');
 const compression = require('compression');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const xss = require('xss');
 const NodeCache = require('node-cache');
 const { GoogleGenAI } = require('@google/genai');
 const { Pinecone } = require('@pinecone-database/pinecone');
@@ -26,6 +29,17 @@ const pineconeIndexName = process.env.PINECONE_INDEX_NAME ? process.env.PINECONE
 const embeddingModel = process.env.GEMINI_EMBEDDING_MODEL
   ? process.env.GEMINI_EMBEDDING_MODEL.trim()
   : 'gemini-embedding-001';
+
+function parsePositiveInteger(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const CHAT_RATE_LIMIT_WINDOW_MS = parsePositiveInteger(
+  process.env.RATE_LIMIT_WINDOW_MS,
+  15 * 60 * 1000
+);
+const CHAT_RATE_LIMIT_MAX = parsePositiveInteger(process.env.CHAT_RATE_LIMIT_MAX, 20);
 
 const ai = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
 const pinecone = pineconeApiKey ? new Pinecone({ apiKey: pineconeApiKey }) : null;
@@ -75,12 +89,29 @@ const MAX_HISTORY_MESSAGES = 4;
 const MAX_MESSAGE_CHARS = 2000;
 const MAX_CONTEXT_CHARS = 4000;
 
+const chatRateLimiter = rateLimit({
+  windowMs: CHAT_RATE_LIMIT_WINDOW_MS,
+  max: CHAT_RATE_LIMIT_MAX,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many chat requests. Please wait and try again.' },
+});
+
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(compression());
 app.use(cors(DEFAULT_CORS_ORIGIN ? { origin: DEFAULT_CORS_ORIGIN } : undefined));
 app.use(express.json({ limit: '32kb' }));
 
 function sanitizeText(value) {
-  return typeof value === 'string' ? value.trim() : '';
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return xss(value, {
+    whiteList: {},
+    stripIgnoreTag: true,
+    stripIgnoreTagBody: ['script', 'style'],
+  }).trim();
 }
 
 function detectApiKeyError(error) {
@@ -301,7 +332,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', chatRateLimiter, async (req, res) => {
   try {
     const message = sanitizeText(req.body?.message);
     const history = Array.isArray(req.body?.history) ? req.body.history : [];
