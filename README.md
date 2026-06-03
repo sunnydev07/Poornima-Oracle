@@ -61,6 +61,10 @@ CORS_ORIGIN=
 RATE_LIMIT_WINDOW_MS=900000
 CHAT_RATE_LIMIT_MAX=20
 QUERY_CACHE_TTL_SECONDS=3600
+RAG_TOP_K=6
+RAG_MIN_SCORE=0.35
+RAG_REQUEST_TIMEOUT_MS=15000
+RAG_REQUEST_RETRIES=2
 ```
 
 Required variables:
@@ -77,6 +81,10 @@ Optional variables:
 - `RATE_LIMIT_WINDOW_MS`: defaults to `900000` milliseconds
 - `CHAT_RATE_LIMIT_MAX`: defaults to `20` requests per IP per window
 - `QUERY_CACHE_TTL_SECONDS`: defaults to `3600` seconds
+- `RAG_TOP_K`: Pinecone matches to request, defaults to `6`, clamped from `1` to `8`
+- `RAG_MIN_SCORE`: minimum Pinecone score used for context and sources, defaults to `0.35`, clamped from `0` to `1`
+- `RAG_REQUEST_TIMEOUT_MS`: Gemini/Pinecone request timeout, defaults to `15000` milliseconds
+- `RAG_REQUEST_RETRIES`: transient upstream retries, defaults to `2`, clamped from `0` to `5`
 
 Do not commit real API keys or private environment files.
 

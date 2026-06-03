@@ -35,14 +35,45 @@ function parsePositiveInteger(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function parseBoundedInteger(value, fallback, min, max) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.min(Math.max(parsed, min), max);
+}
+
+function parseBoundedNumber(value, fallback, min, max) {
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.min(Math.max(parsed, min), max);
+}
+
 const CHAT_RATE_LIMIT_WINDOW_MS = parsePositiveInteger(
   process.env.RATE_LIMIT_WINDOW_MS,
   15 * 60 * 1000
 );
 const CHAT_RATE_LIMIT_MAX = parsePositiveInteger(process.env.CHAT_RATE_LIMIT_MAX, 20);
+const RAG_TOP_K = parseBoundedInteger(process.env.RAG_TOP_K, 6, 1, 8);
+const RAG_MIN_SCORE = parseBoundedNumber(process.env.RAG_MIN_SCORE, 0.35, 0, 1);
+const RAG_REQUEST_TIMEOUT_MS = parsePositiveInteger(process.env.RAG_REQUEST_TIMEOUT_MS, 15000);
+const RAG_REQUEST_RETRIES = parseBoundedInteger(process.env.RAG_REQUEST_RETRIES, 2, 0, 5);
+// Pinecone treats 0 as "use default retries"; -1 forces a single attempt.
+const PINECONE_MAX_RETRIES = RAG_REQUEST_RETRIES > 0 ? RAG_REQUEST_RETRIES : -1;
 
 const ai = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
-const pinecone = pineconeApiKey ? new Pinecone({ apiKey: pineconeApiKey }) : null;
+const pinecone = pineconeApiKey
+  ? new Pinecone({
+      apiKey: pineconeApiKey,
+      fetchApi: createTimeoutFetch(RAG_REQUEST_TIMEOUT_MS),
+      maxRetries: PINECONE_MAX_RETRIES,
+    })
+  : null;
+const pineconeIndex = pinecone && pineconeIndexName ? pinecone.index(pineconeIndexName) : null;
 const queryCacheTtlSeconds = Number.parseInt(process.env.QUERY_CACHE_TTL_SECONDS, 10);
 const queryCache = new NodeCache({
   stdTTL: Number.isFinite(queryCacheTtlSeconds) && queryCacheTtlSeconds > 0
@@ -51,6 +82,35 @@ const queryCache = new NodeCache({
   checkperiod: 120,
   useClones: false,
 });
+
+function createTimeoutFetch(timeoutMs) {
+  return async (url, init = {}) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    timeout.unref?.();
+
+    if (init.signal) {
+      if (init.signal.aborted) {
+        controller.abort(init.signal.reason);
+      } else {
+        init.signal.addEventListener(
+          'abort',
+          () => controller.abort(init.signal.reason),
+          { once: true }
+        );
+      }
+    }
+
+    try {
+      return await fetch(url, {
+        ...init,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+}
 
 function validateApiKeyFormat(key, name, minLength) {
   if (!key) return { valid: false, reason: 'not set or empty' };
@@ -227,9 +287,71 @@ function isAbusive(text) {
   return badWords.some((word) => lowerText.includes(word));
 }
 
-function buildHistoryContext(history) {
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getErrorStatus(error) {
+  const status = error?.status || error?.code || error?.response?.status;
+  const parsed = Number.parseInt(status, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isTransientError(error) {
+  const status = getErrorStatus(error);
+  if ([408, 429, 500, 502, 503, 504].includes(status)) {
+    return true;
+  }
+
+  const code = String(error?.code || error?.name || '').toLowerCase();
+  const message = String(error?.message || error || '').toLowerCase();
+  return (
+    code.includes('abort') ||
+    code === 'etimedout' ||
+    code === 'econnreset' ||
+    code === 'econnrefused' ||
+    code === 'eai_again' ||
+    message.includes('timeout') ||
+    message.includes('temporarily unavailable') ||
+    message.includes('connection reset')
+  );
+}
+
+async function withTransientRetries(operationName, operation) {
+  for (let attempt = 0; attempt <= RAG_REQUEST_RETRIES; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (attempt >= RAG_REQUEST_RETRIES || !isTransientError(error)) {
+        throw error;
+      }
+
+      const delayMs = Math.min(250 * 2 ** attempt, 2000);
+      console.warn(
+        `${operationName} failed: ${error?.message || error}. ` +
+        `Retrying in ${delayMs}ms (${attempt + 1}/${RAG_REQUEST_RETRIES}).`
+      );
+      await delay(delayMs);
+    }
+  }
+
+  return null;
+}
+
+function createRequestAbortController(timeoutMs) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  timeout.unref?.();
+
+  return {
+    signal: controller.signal,
+    clear: () => clearTimeout(timeout),
+  };
+}
+
+function getRecentHistoryEntries(history) {
   if (!Array.isArray(history) || history.length < 2) {
-    return '';
+    return [];
   }
 
   return history
@@ -245,10 +367,20 @@ function buildHistoryContext(history) {
         return null;
       }
 
-      const role = message.role === 'user' ? 'User' : 'Poornima Oracle';
-      return `${role}: ${content}`;
+      return {
+        role: message.role === 'user' ? 'user' : 'assistant',
+        content,
+      };
     })
-    .filter(Boolean)
+    .filter(Boolean);
+}
+
+function buildHistoryContext(history) {
+  return getRecentHistoryEntries(history)
+    .map((message) => {
+      const role = message.role === 'user' ? 'User' : 'Poornima Oracle';
+      return `${role}: ${message.content}`;
+    })
     .join('\n')
     .slice(0, MAX_CONTEXT_CHARS);
 }
@@ -305,6 +437,14 @@ function buildSources(matches) {
     .slice(0, 3);
 }
 
+function filterRelevantMatches(matches) {
+  return matches.filter((match) => (
+    typeof match?.score === 'number' &&
+    Number.isFinite(match.score) &&
+    match.score >= RAG_MIN_SCORE
+  ));
+}
+
 function writeSse(res, event, payload) {
   res.write(`event: ${event}\n`);
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
@@ -318,8 +458,25 @@ function setSseHeaders(res) {
   res.flushHeaders?.();
 }
 
-function getQueryCacheKey(message) {
-  return crypto.createHash('sha256').update(message, 'utf8').digest('hex');
+function normalizeForCache(value) {
+  return sanitizeText(value)
+    .normalize('NFKC')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function getQueryCacheKey(message, history) {
+  const payload = {
+    v: 2,
+    message: normalizeForCache(message),
+    history: getRecentHistoryEntries(history).map((entry) => ({
+      role: entry.role,
+      content: normalizeForCache(entry.content),
+    })),
+  };
+
+  return crypto.createHash('sha256').update(JSON.stringify(payload), 'utf8').digest('hex');
 }
 
 function writeCachedResponse(res, cachedResponse) {
@@ -346,6 +503,55 @@ When relevant, distinguish between student awards and alumni awards, and between
 
 Context:
 ${contextSnippets || 'No relevant database context was found.'}`;
+}
+
+async function createQueryEmbedding(message) {
+  return withTransientRetries('Gemini embedding', async () => {
+    const abortController = createRequestAbortController(RAG_REQUEST_TIMEOUT_MS);
+    try {
+      const embedResponse = await ai.models.embedContent({
+        model: embeddingModel,
+        contents: message,
+        config: {
+          outputDimensionality: 768,
+          httpOptions: {
+            timeout: RAG_REQUEST_TIMEOUT_MS,
+          },
+          abortSignal: abortController.signal,
+        },
+      });
+
+      return embedResponse?.embeddings?.[0]?.values || [];
+    } finally {
+      abortController.clear();
+    }
+  });
+}
+
+async function startAnswerStream(message, historyContext, contextSnippets) {
+  return withTransientRetries('Gemini answer stream start', async () => {
+    const abortController = createRequestAbortController(RAG_REQUEST_TIMEOUT_MS);
+    try {
+      return await ai.models.generateContentStream({
+        model: 'gemini-2.5-flash',
+        config: {
+          systemInstruction: buildSystemInstruction(contextSnippets),
+          httpOptions: {
+            timeout: RAG_REQUEST_TIMEOUT_MS,
+          },
+          abortSignal: abortController.signal,
+        },
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: `Previous Conversation:\n${historyContext || 'None'}\n\nQuestion: ${message}` }],
+          },
+        ],
+      });
+    } finally {
+      abortController.clear();
+    }
+  });
 }
 
 app.get('/', (req, res) => {
@@ -379,14 +585,14 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
       });
     }
 
-    const queryCacheKey = getQueryCacheKey(message);
+    const queryCacheKey = getQueryCacheKey(message, history);
     const cachedResponse = queryCache.get(queryCacheKey);
     if (cachedResponse) {
       console.log('Cache hit for query:', message.slice(0, 200));
       return writeCachedResponse(res, cachedResponse);
     }
 
-    if (missingEnvVars.length > 0 || !ai || !pinecone) {
+    if (missingEnvVars.length > 0 || !ai || !pineconeIndex) {
       return res.status(503).json({
         error: `Server is missing required environment variables: ${missingEnvVars.join(', ')}.`,
       });
@@ -404,46 +610,27 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
       return res.end();
     }
 
-    const embedResponse = await ai.models.embedContent({
-      model: embeddingModel,
-      contents: message,
-      config: {
-        outputDimensionality: 768,
-      },
-    });
-
-    const queryVector = embedResponse?.embeddings?.[0]?.values || [];
+    const queryVector = await createQueryEmbedding(message);
     if (!Array.isArray(queryVector) || queryVector.length === 0) {
       writeSse(res, 'error', { error: 'Failed to generate an embedding for the query.' });
       return res.end();
     }
 
-    const index = pinecone.index(pineconeIndexName);
-    const queryResponse = await index.query({
-      topK: 3,
+    const queryResponse = await pineconeIndex.query({
+      topK: RAG_TOP_K,
       vector: queryVector,
       includeMetadata: true,
     });
 
     const matches = Array.isArray(queryResponse?.matches) ? queryResponse.matches : [];
-    const contextSnippets = buildContextSnippets(matches);
+    const relevantMatches = filterRelevantMatches(matches);
+    const contextSnippets = buildContextSnippets(relevantMatches);
     const historyContext = buildHistoryContext(history);
-    const sources = buildSources(matches);
+    const sources = buildSources(relevantMatches);
 
     writeSse(res, 'sources', { sources });
 
-    const stream = await ai.models.generateContentStream({
-      model: 'gemini-2.5-flash',
-      config: {
-        systemInstruction: buildSystemInstruction(contextSnippets),
-      },
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: `Previous Conversation:\n${historyContext || 'None'}\n\nQuestion: ${message}` }],
-        },
-      ],
-    });
+    const stream = await startAnswerStream(message, historyContext, contextSnippets);
 
     let answer = '';
     for await (const chunk of stream) {
