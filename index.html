@@ -468,12 +468,11 @@
                 </button>
             </div>
 
-            <!-- Conversations List -->
+            <!-- Conversations List (dynamically populated by JS) -->
             <div class="flex-1 overflow-y-auto p-2 scrollbar-thin" id="conversationsList">
-                <div
-                    class="sidebar-item group flex items-center gap-3 p-3.5 rounded-xl cursor-pointer bg-zinc-800/60 border border-white/10 text-white shadow-[0_0_15px_rgba(255,255,255,0.05)] mb-2">
-                    <i data-lucide="message-square" class="sidebar-icon w-4 h-4 text-cyan-400 shrink-0"></i>
-                    <span class="sidebar-text text-sm truncate font-light">Welcome</span>
+                <div id="convListEmpty" class="px-3 py-10 text-center hidden">
+                    <i data-lucide="message-square-dashed" class="w-7 h-7 text-zinc-700 mx-auto mb-2"></i>
+                    <p class="text-[10px] text-zinc-600 uppercase tracking-wider">No conversations yet</p>
                 </div>
             </div>
 
@@ -788,9 +787,270 @@
             return endpoint;
         }
 
+        // ===== ConversationStore: IndexedDB-backed persistent multi-conversation storage =====
+        class ConversationStore {
+            constructor() {
+                this.dbName = 'poornima-oracle-db';
+                this.storeName = 'conversations';
+                this.db = null;
+                this._fallback = false;
+            }
+
+            async init() {
+                try {
+                    this.db = await this._openDB();
+                } catch (e) {
+                    console.warn('[Oracle] IndexedDB unavailable, using localStorage fallback:', e);
+                    this._fallback = true;
+                }
+            }
+
+            _openDB() {
+                return new Promise((resolve, reject) => {
+                    const request = indexedDB.open(this.dbName, 1);
+                    request.onupgradeneeded = (e) => {
+                        const db = e.target.result;
+                        if (!db.objectStoreNames.contains(this.storeName)) {
+                            const os = db.createObjectStore(this.storeName, { keyPath: 'id' });
+                            os.createIndex('updatedAt', 'updatedAt', { unique: false });
+                        }
+                    };
+                    request.onsuccess = (e) => resolve(e.target.result);
+                    request.onerror = (e) => reject(e.target.error);
+                });
+            }
+
+            generateId() {
+                return `conv-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+            }
+
+            generateTitle(message) {
+                if (!message) return 'New Chat';
+                const maxLen = 45;
+                const text = String(message).trim().replace(/\s+/g, ' ');
+                if (text.length <= maxLen) return text;
+                const truncated = text.substring(0, maxLen);
+                const lastSpace = truncated.lastIndexOf(' ');
+                return (lastSpace > 15 ? truncated.substring(0, lastSpace) : truncated) + '\u2026';
+            }
+
+            async saveConversation(conv) {
+                if (!conv || !conv.id) return;
+                conv.updatedAt = Date.now();
+                if (this._fallback) { this._fbSave(conv); return; }
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction(this.storeName, 'readwrite');
+                    tx.objectStore(this.storeName).put(conv);
+                    tx.oncomplete = () => resolve();
+                    tx.onerror = (e) => reject(e.target.error);
+                });
+            }
+
+            async getConversation(id) {
+                if (this._fallback) return this._fbLoad().find(c => c.id === id) || null;
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction(this.storeName, 'readonly');
+                    const req = tx.objectStore(this.storeName).get(id);
+                    req.onsuccess = (e) => resolve(e.target.result || null);
+                    req.onerror = (e) => reject(e.target.error);
+                });
+            }
+
+            async getAllConversations() {
+                if (this._fallback) {
+                    return this._fbLoad().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+                }
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction(this.storeName, 'readonly');
+                    const req = tx.objectStore(this.storeName).index('updatedAt').getAll();
+                    req.onsuccess = (e) => resolve((e.target.result || []).reverse());
+                    req.onerror = (e) => reject(e.target.error);
+                });
+            }
+
+            async deleteConversation(id) {
+                if (this._fallback) {
+                    const all = this._fbLoad().filter(c => c.id !== id);
+                    localStorage.setItem('poornimaOracleConversations', JSON.stringify(all));
+                    return;
+                }
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction(this.storeName, 'readwrite');
+                    tx.objectStore(this.storeName).delete(id);
+                    tx.oncomplete = () => resolve();
+                    tx.onerror = (e) => reject(e.target.error);
+                });
+            }
+
+            _fbSave(conv) {
+                const all = this._fbLoad();
+                const idx = all.findIndex(c => c.id === conv.id);
+                if (idx >= 0) all[idx] = conv; else all.unshift(conv);
+                localStorage.setItem('poornimaOracleConversations', JSON.stringify(all));
+            }
+
+            _fbLoad() {
+                try {
+                    return JSON.parse(localStorage.getItem('poornimaOracleConversations') || '[]');
+                } catch (e) { return []; }
+            }
+        }
+
+        // ===== Sidebar Conversation List Rendering =====
+        async function renderSidebarConversations() {
+            const listEl = document.getElementById('conversationsList');
+            const emptyEl = document.getElementById('convListEmpty');
+            if (!listEl || !store) return;
+
+            let convs = [];
+            try { convs = await store.getAllConversations(); } catch (e) { console.warn(e); }
+
+            // Remove previously-rendered dynamic items
+            listEl.querySelectorAll('[data-conv-item]').forEach(el => el.remove());
+
+            const activeId = activeConversation ? activeConversation.id : '';
+
+            if (convs.length === 0) {
+                if (emptyEl) emptyEl.classList.remove('hidden');
+                return;
+            }
+            if (emptyEl) emptyEl.classList.add('hidden');
+
+            const fragment = document.createDocumentFragment();
+            convs.forEach(conv => {
+                const isActive = conv.id === activeId;
+                const item = document.createElement('div');
+                item.setAttribute('data-conv-item', conv.id);
+                item.className = [
+                    'sidebar-item group flex items-center gap-2.5 p-3 rounded-xl cursor-pointer',
+                    'border transition-all mb-1 touch-manipulation',
+                    isActive
+                        ? 'bg-zinc-800/70 border-cyan-500/20 text-white shadow-[0_0_12px_rgba(34,211,238,0.08)]'
+                        : 'border-transparent hover:bg-white/5 hover:border-white/10 text-zinc-400 hover:text-zinc-200',
+                ].join(' ');
+
+                const safeId = escapeHtml(conv.id);
+                item.innerHTML = `
+                    <i data-lucide="${isActive ? 'message-square-text' : 'message-square'}"
+                        class="sidebar-icon w-4 h-4 ${isActive ? 'text-cyan-400' : 'text-zinc-600 group-hover:text-zinc-400'} shrink-0 transition-colors"></i>
+                    <span class="sidebar-text text-xs truncate flex-1 ${isActive ? 'font-medium text-white' : 'font-light'}">${escapeHtml(conv.title || 'New Chat')}</span>
+                    <button class="sidebar-text opacity-0 group-hover:opacity-100 p-1 rounded-lg
+                                   text-zinc-600 hover:text-rose-400 hover:bg-rose-500/10 transition-all shrink-0"
+                            title="Delete conversation"
+                            onclick="event.stopPropagation(); handleDeleteConversation('${safeId}')">
+                        <i data-lucide="trash-2" class="w-3 h-3"></i>
+                    </button>`;
+
+                item.addEventListener('click', () => handleSwitchConversation(conv.id));
+                fragment.appendChild(item);
+            });
+
+            listEl.prepend(fragment);
+            refreshIcons();
+        }
+
+        async function handleSwitchConversation(id) {
+            if (activeConversation && activeConversation.id === id) {
+                if (window.innerWidth < 768) closeMobileSidebar();
+                return;
+            }
+            if (isLoading) return;
+
+            // Save current conversation before switching
+            if (activeConversation && activeConversation.messages.length > 0) {
+                try { await store.saveConversation(activeConversation); } catch (e) { console.warn(e); }
+            }
+
+            try {
+                const conv = await store.getConversation(id);
+                if (!conv) return;
+
+                activeConversation = conv;
+                conversationHistory = activeConversation.messages;
+                localStorage.setItem('activeConversationId', id);
+                chatStarted = conv.messages.length > 0;
+                messageCount = conv.messages.length;
+                isLoading = false;
+                stopSpeechRecognition();
+                stopCurrentSpeech();
+
+                const chatContainer = document.getElementById('chatContainer');
+                chatContainer.innerHTML = '';
+
+                if (conv.messages.length === 0) {
+                    renderWelcomeScreen();
+                } else {
+                    for (const msg of conv.messages) {
+                        if (msg.role === 'user') renderUserMessage(msg);
+                        else if (msg.role === 'assistant') renderAssistantMessage(msg);
+                    }
+                    requestAnimationFrame(() => {
+                        chatContainer.scrollTop = chatContainer.scrollHeight;
+                        updateScrollToBottomButton();
+                    });
+                }
+
+                const input = document.getElementById('messageInput');
+                input.value = '';
+                input.style.height = 'auto';
+                const sendBtn = document.getElementById('sendButton');
+                sendBtn.disabled = false;
+                sendBtn.innerHTML = '<i data-lucide="send" class="w-5 h-5"></i>';
+
+                await renderSidebarConversations();
+                refreshIcons();
+                if (window.innerWidth < 768) closeMobileSidebar();
+                else input.focus();
+            } catch (e) { 
+                console.error('[Oracle] Failed to switch conversation:', e);
+            }
+        }
+
+        async function handleDeleteConversation(id) {
+            try {
+                await store.deleteConversation(id);
+                if (activeConversation && activeConversation.id === id) {
+                    await startNewChat();
+                } else {
+                    await renderSidebarConversations();
+                }
+            } catch (e) {
+                console.error('[Oracle] Failed to delete conversation:', e);
+            }
+        }
+
+        async function migrateOldHistory() {
+            const oldData = localStorage.getItem(HISTORY_STORAGE_KEY);
+            if (!oldData) return null;
+            try {
+                const messages = JSON.parse(oldData);
+                if (!Array.isArray(messages) || messages.length === 0) {
+                    localStorage.removeItem(HISTORY_STORAGE_KEY);
+                    return null;
+                }
+                const firstUserMsg = messages.find(m => m.role === 'user');
+                const conv = {
+                    id: store.generateId(),
+                    title: store.generateTitle(firstUserMsg ? firstUserMsg.content : 'Previous Chat'),
+                    titled: true,
+                    createdAt: Date.now(),
+                    updatedAt: Date.now(),
+                    messages,
+                };
+                await store.saveConversation(conv);
+                localStorage.removeItem(HISTORY_STORAGE_KEY);
+                console.log('[Oracle] Migrated old history to IndexedDB.');
+                return conv.id;
+            } catch (e) {
+                console.warn('[Oracle] Migration failed:', e);
+                return null;
+            }
+        }
+
+        // ===== State Variables =====
         let chatStarted = false;
         let messageCount = 0;
-        let conversationHistory = [];
+        let conversationHistory = [];       // Always mirrors activeConversation.messages
         let demoMode = localStorage.getItem(DEMO_MODE_STORAGE_KEY) === 'true';
         let apiEndpoint = ensureApiEndpoint();
         let isLoading = false;
@@ -802,14 +1062,69 @@
         let currentSpeechMessageId = '';
         let currentSpeechUtterance = null;
         let scrollAffordanceTimer = null;
+        let store = null;                   // ConversationStore instance
+        let activeConversation = null;      // Currently active conversation object
 
-        window.addEventListener('load', () => {
+        window.addEventListener('load', async () => {
             apiEndpoint = ensureApiEndpoint();
             document.getElementById('apiEndpoint').value = apiEndpoint;
 
-            if (!restoreConversation()) {
+            // 1. Initialize IndexedDB conversation store
+            store = new ConversationStore();
+            await store.init();
+
+            // 2. Migrate any old single-conversation localStorage data
+            const migratedId = await migrateOldHistory();
+
+            // 3. Determine which conversation to restore
+            const savedActiveId = migratedId || localStorage.getItem('activeConversationId');
+            let restored = false;
+
+            if (savedActiveId) {
+                try {
+                    const conv = await store.getConversation(savedActiveId);
+                    if (conv && conv.messages.length > 0) {
+                        activeConversation = conv;
+                        conversationHistory = activeConversation.messages;
+                        chatStarted = true;
+                        messageCount = conv.messages.length;
+                        localStorage.setItem('activeConversationId', conv.id);
+
+                        const chatContainer = document.getElementById('chatContainer');
+                        chatContainer.innerHTML = '';
+                        for (const msg of conv.messages) {
+                            if (msg.role === 'user') renderUserMessage(msg);
+                            else if (msg.role === 'assistant') renderAssistantMessage(msg);
+                        }
+                        requestAnimationFrame(() => {
+                            chatContainer.scrollTop = chatContainer.scrollHeight;
+                            updateScrollToBottomButton();
+                        });
+                        restored = true;
+                    }
+                } catch (e) {
+                    console.warn('[Oracle] Failed to restore conversation:', e);
+                }
+            }
+
+            if (!restored) {
+                // Start a fresh conversation shell for the welcome screen
+                activeConversation = {
+                    id: store.generateId(),
+                    title: 'New Chat',
+                    titled: false,
+                    createdAt: Date.now(),
+                    updatedAt: Date.now(),
+                    messages: [],
+                };
+                conversationHistory = activeConversation.messages;
+                localStorage.setItem('activeConversationId', activeConversation.id);
                 renderWelcomeScreen();
             }
+
+            // 4. Render sidebar with all stored conversations
+            await renderSidebarConversations();
+
             initializeVoiceFeatures();
             initializeScrollAffordance();
             refreshIcons();
@@ -859,36 +1174,53 @@
             }
         }
 
-        function startNewChat() {
-            // 1. Reset State
+        async function startNewChat() {
+            // 1. Save current conversation if it has messages
+            if (activeConversation && activeConversation.messages.length > 0) {
+                try { await store.saveConversation(activeConversation); } catch (e) { console.warn(e); }
+            }
+
+            // 2. Stop any in-flight activity
             stopSpeechRecognition();
             stopCurrentSpeech();
             chatStarted = false;
             messageCount = 0;
-            conversationHistory = [];
             isLoading = false;
-            localStorage.removeItem(HISTORY_STORAGE_KEY);
 
-            // 2. Reset UI
+            // 3. Create a fresh conversation object
+            activeConversation = {
+                id: store.generateId(),
+                title: 'New Chat',
+                titled: false,
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                messages: [],
+            };
+            conversationHistory = activeConversation.messages;
+            localStorage.setItem('activeConversationId', activeConversation.id);
+
+            // 4. Reset UI
             const chatContainer = document.getElementById('chatContainer');
             chatContainer.innerHTML = '';
             renderWelcomeScreen();
             updateScrollToBottomButton();
 
-            // 3. Reset Input
+            // 5. Reset Input
             const input = document.getElementById('messageInput');
             input.value = '';
             input.style.height = 'auto';
 
-            // 4. Reset Button
+            // 6. Reset Button
             const sendBtn = document.getElementById('sendButton');
             sendBtn.disabled = false;
             sendBtn.innerHTML = '<i data-lucide="send" class="w-5 h-5"></i>';
 
-            // 5. Refresh Icons
+            // 7. Refresh Icons
             refreshIcons();
 
-            // 6. Close Mobile Sidebar (Important fix for mobile)
+            // 8. Update sidebar + close on mobile
+            await renderSidebarConversations();
+
             if (window.innerWidth < 768) {
                 closeMobileSidebar();
             } else {
@@ -1297,6 +1629,15 @@
             // Add User Message
             const userMessage = { id: createMessageId('user'), role: 'user', content: String(message) };
             conversationHistory.push(userMessage);
+
+            // Auto-title the conversation from the first user message
+            if (activeConversation && !activeConversation.titled) {
+                activeConversation.title = store.generateTitle(message);
+                activeConversation.titled = true;
+                // Update sidebar with the new title (deferred to not block UI)
+                window.setTimeout(() => renderSidebarConversations(), 0);
+            }
+
             saveConversationHistory();
             renderUserMessage(userMessage);
             refreshIcons();
@@ -1521,65 +1862,19 @@
         }
 
         function saveConversationHistory() {
-            localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(conversationHistory));
+            // Persist active conversation to IndexedDB
+            if (!activeConversation || !store) return;
+            store.saveConversation(activeConversation).catch(e => console.warn('[Oracle] Save failed:', e));
         }
 
         function loadConversationHistory() {
-            try {
-                const stored = JSON.parse(localStorage.getItem(HISTORY_STORAGE_KEY) || '[]');
-                if (!Array.isArray(stored)) return [];
-
-                let lastUserQuestion = '';
-                return stored
-                    .filter(item => item && typeof item.content === 'string')
-                    .map((item) => {
-                        const normalized = {
-                            ...item,
-                            id: item.id || createMessageId(item.role === 'assistant' ? 'assistant' : 'user'),
-                            sources: Array.isArray(item.sources) ? item.sources : [],
-                            feedback: item.feedback || '',
-                        };
-
-                        if (normalized.role === 'user') {
-                            lastUserQuestion = normalized.content;
-                        } else if (normalized.role === 'assistant' && !normalized.question) {
-                            normalized.question = lastUserQuestion;
-                        }
-
-                        return normalized;
-                    });
-            } catch (error) {
-                localStorage.removeItem(HISTORY_STORAGE_KEY);
-                return [];
-            }
+            // History managed via ConversationStore — returns current in-memory array
+            return activeConversation ? activeConversation.messages : [];
         }
 
         function restoreConversation() {
-            const restored = loadConversationHistory();
-            if (!restored.length) {
-                return false;
-            }
-
-            conversationHistory = restored;
-            chatStarted = true;
-            messageCount = restored.length;
-
-            const chatContainer = document.getElementById('chatContainer');
-            chatContainer.innerHTML = '';
-
-            for (const message of restored) {
-                if (message.role === 'user') {
-                    renderUserMessage(message);
-                } else if (message.role === 'assistant') {
-                    renderAssistantMessage(message);
-                }
-            }
-
-            requestAnimationFrame(() => {
-                chatContainer.scrollTop = chatContainer.scrollHeight;
-                updateScrollToBottomButton();
-            });
-            return true;
+            // Async restoration handled in window.load — kept as no-op stub
+            return false;
         }
 
         function renderUserMessage(message) {
