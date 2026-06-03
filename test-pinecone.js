@@ -2,8 +2,14 @@
 const { Pinecone } = require('@pinecone-database/pinecone');
 
 async function testPinecone() {
-  const apiKey = 'pcsk_7NPFks_QZFn9niEoFxaw9oxQANqXFbNU1eBduzX84mcLf85dbQCad86CbApKj6k6pbVpBn';
-  const indexName = 'databaseinjson';
+  const apiKey = process.env.PINECONE_API_KEY;
+  const indexName = process.env.PINECONE_INDEX_NAME;
+
+  if (!apiKey || !indexName) {
+    console.error('Set PINECONE_API_KEY and PINECONE_INDEX_NAME before running this test.');
+    process.exitCode = 1;
+    return;
+  }
 
   console.log('Testing Pinecone API key...\n');
 
@@ -50,7 +56,7 @@ async function testPinecone() {
     } else {
       console.log(`   Index "${indexName}" NOT found.`);
       console.log('   Available indexes:', indexes.map(i => i.name).join(', '));
-      console.log('\n❌ The index "databaseinjson" does not exist in your Pinecone account.');
+      console.log(`\n❌ The index "${indexName}" does not exist in your Pinecone account.`);
     }
   } catch (error) {
     console.error('\n❌ Error:', error.message);

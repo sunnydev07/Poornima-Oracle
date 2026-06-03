@@ -97,7 +97,39 @@ const chatRateLimiter = rateLimit({
   message: { error: 'Too many chat requests. Please wait and try again.' },
 });
 
-app.use(helmet({ contentSecurityPolicy: false }));
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          'https://unpkg.com',
+          'https://cdnjs.cloudflare.com',
+        ],
+        scriptSrcAttr: ["'unsafe-inline'"],
+        styleSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          'https://fonts.googleapis.com',
+          'https://unpkg.com',
+        ],
+        fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+        connectSrc: [
+          "'self'",
+          'https://generativelanguage.googleapis.com',
+          'https://*.generativelanguage.googleapis.com',
+          'https://aiplatform.googleapis.com',
+          'https://*.aiplatform.googleapis.com',
+        ],
+        imgSrc: ["'self'", 'data:', 'https:'],
+        workerSrc: ["'self'", 'blob:'],
+      },
+    },
+  })
+);
 app.use(compression());
 app.use(cors(DEFAULT_CORS_ORIGIN ? { origin: DEFAULT_CORS_ORIGIN } : undefined));
 app.use(express.json({ limit: '32kb' }));

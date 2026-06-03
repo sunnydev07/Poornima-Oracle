@@ -14,8 +14,8 @@
     <script src="https://unpkg.com/lucide@latest"></script>
 
     <!-- Markdown parsing and sanitization -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.3/dist/purify.min.js"></script>
+    <script src="https://unpkg.com/marked@16.2.1/lib/marked.umd.js"></script>
+    <script src="https://unpkg.com/dompurify@3.2.3/dist/purify.min.js"></script>
 
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1981,6 +1981,7 @@
                 const rawHtml = marked.parse(String(text));
                 return DOMPurify.sanitize(rawHtml, {
                     ADD_ATTR: ['target', 'rel'],
+                    ALLOWED_URI_REGEXP: /^(?:(?:https?|ftp|mailto):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
                 });
             }
 
