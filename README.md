@@ -238,7 +238,3 @@ Request body:
   ```powershell
   $env:PORT=3002; npm start
   ```
-
-- Empty or poor answers: confirm the Pinecone index contains Poornima documents and was built with the same embedding model and dimensions.
-- API key errors: verify key values, permissions, quota, and hosting environment variable names.
-- Browser cannot reach backend: update the API endpoint in the settings modal and confirm CORS settings if the frontend and backend are hosted on different origins.
