@@ -1,6 +1,7 @@
 {
   "name": "poornima-instructor-server",
   "version": "1.0.0",
+  "description": "Instructor assistant server for Poornima Oracle.",
   "main": "server.js",
   "scripts": {
     "build:css": "tailwindcss -i ./tailwind.input.css -o ./styles.css --minify",
