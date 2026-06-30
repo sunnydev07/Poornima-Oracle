@@ -2,6 +2,10 @@
   "name": "poornima-instructor-server",
   "version": "1.0.0",
   "description": "Instructor assistant server for Poornima Oracle.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sunnydev07/Poornima-Oracle.git"
+  },
   "main": "server.js",
   "scripts": {
     "build:css": "tailwindcss -i ./tailwind.input.css -o ./styles.css --minify",
