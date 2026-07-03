@@ -99,3 +99,4 @@ The chat stream emits `sources`, `token`, `done`, or `error` events.
 4. Verify the deployment at `/api/health`.
 
 Do not commit `.env` files or API keys.
+# 2026-07-03
