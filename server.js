@@ -567,6 +567,9 @@ app.get('/api/health', (req, res) => {
     ok: true,
     configured: missingEnvVars.length === 0,
     missingEnvVars,
+    uptimeSeconds: Math.floor(process.uptime()),
+    memoryUsage: process.memoryUsage(),
+    timestamp: new Date().toISOString(),
   });
 });
 
