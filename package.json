@@ -12,7 +12,8 @@
     "dev": "node server.js",
     "start": "node server.js",
     "start:prod": "pm2 start server.js --name poornima-oracle",
-    "check": "node --check server.js"
+    "check": "node --check server.js",
+    "test:pinecone": "node test-pinecone.js"
   },
   "dependencies": {
     "@google/genai": "^1.28.0",

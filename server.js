@@ -13,6 +13,7 @@ const { GoogleGenAI } = require('@google/genai');
 const { Pinecone } = require('@pinecone-database/pinecone');
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = Number(process.env.PORT) || 3001;
 const DEFAULT_CORS_ORIGIN = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
@@ -26,6 +27,7 @@ const missingEnvVars = requiredEnvVars.filter(
 const geminiApiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : '';
 const pineconeApiKey = process.env.PINECONE_API_KEY ? process.env.PINECONE_API_KEY.trim() : '';
 const pineconeIndexName = process.env.PINECONE_INDEX_NAME ? process.env.PINECONE_INDEX_NAME.trim() : '';
+const pineconeNamespace = process.env.PINECONE_NAMESPACE ? process.env.PINECONE_NAMESPACE.trim() : '';
 const embeddingModel = process.env.GEMINI_EMBEDDING_MODEL
   ? process.env.GEMINI_EMBEDDING_MODEL.trim()
   : 'gemini-embedding-001';
@@ -80,7 +82,8 @@ const queryCache = new NodeCache({
     ? queryCacheTtlSeconds
     : 3600,
   checkperiod: 120,
-  useClones: false,
+  maxKeys: 1000,
+  useClones: true,
 });
 
 function createTimeoutFetch(timeoutMs) {
@@ -144,7 +147,7 @@ function validateApiKeysAtStartup() {
   }
 }
 
-const badWords = ['fuck', 'shit', 'stupid', 'bakwaas','laude','behenchod','gandu'];
+const badWordsRegex = /\b(fuck|shit|bakwaas|behenchod|gandu)\b/i;
 const MAX_HISTORY_MESSAGES = 4;
 const MAX_MESSAGE_CHARS = 2000;
 const MAX_CONTEXT_CHARS = 4000;
@@ -179,10 +182,7 @@ app.use(
         fontSrc: ["'self'", 'https://fonts.gstatic.com'],
         connectSrc: [
           "'self'",
-          'https://generativelanguage.googleapis.com',
-          'https://*.generativelanguage.googleapis.com',
-          'https://aiplatform.googleapis.com',
-          'https://*.aiplatform.googleapis.com',
+          ...(DEFAULT_CORS_ORIGIN || []),
         ],
         imgSrc: ["'self'", 'data:', 'https:'],
         workerSrc: ["'self'", 'blob:'],
@@ -193,6 +193,7 @@ app.use(
 app.use(compression());
 app.use(cors(DEFAULT_CORS_ORIGIN ? { origin: DEFAULT_CORS_ORIGIN } : undefined));
 app.use(express.json({ limit: '32kb' }));
+app.use(express.static(path.join(__dirname)));
 
 function sanitizeText(value) {
   if (typeof value !== 'string') {
@@ -207,7 +208,7 @@ function sanitizeText(value) {
 }
 
 function detectApiKeyError(error) {
-  const errorMessage = error?.message || String(error).toLowerCase();
+  const errorMessage = (error?.message || String(error)).toLowerCase();
   const errorCode = error?.code || error?.status || '';
 
   if (
@@ -282,9 +283,7 @@ function isAbusive(text) {
   if (typeof text !== 'string') {
     return false;
   }
-
-  const lowerText = text.toLowerCase();
-  return badWords.some((word) => lowerText.includes(word));
+  return badWordsRegex.test(text);
 }
 
 function delay(ms) {
@@ -349,14 +348,12 @@ function createRequestAbortController(timeoutMs) {
   };
 }
 
-function getRecentHistoryEntries(history) {
-  if (!Array.isArray(history) || history.length < 2) {
+function getRecentHistoryEntries(history, currentMessage = '') {
+  if (!Array.isArray(history) || history.length === 0) {
     return [];
   }
 
-  return history
-    .slice(0, -1)
-    .slice(-MAX_HISTORY_MESSAGES)
+  let cleanHistory = history
     .map((message) => {
       if (!message || typeof message !== 'object') {
         return null;
@@ -373,10 +370,19 @@ function getRecentHistoryEntries(history) {
       };
     })
     .filter(Boolean);
+
+  if (cleanHistory.length > 0 && typeof currentMessage === 'string' && currentMessage.trim()) {
+    const last = cleanHistory[cleanHistory.length - 1];
+    if (last.role === 'user' && last.content.trim() === sanitizeText(currentMessage).trim()) {
+      cleanHistory = cleanHistory.slice(0, -1);
+    }
+  }
+
+  return cleanHistory.slice(-MAX_HISTORY_MESSAGES);
 }
 
-function buildHistoryContext(history) {
-  return getRecentHistoryEntries(history)
+function buildHistoryContext(history, currentMessage = '') {
+  return getRecentHistoryEntries(history, currentMessage)
     .map((message) => {
       const role = message.role === 'user' ? 'User' : 'Poornima Oracle';
       return `${role}: ${message.content}`;
@@ -470,7 +476,7 @@ function getQueryCacheKey(message, history) {
   const payload = {
     v: 2,
     message: normalizeForCache(message),
-    history: getRecentHistoryEntries(history).map((entry) => ({
+    history: getRecentHistoryEntries(history, message).map((entry) => ({
       role: entry.role,
       content: normalizeForCache(entry.content),
     })),
@@ -528,9 +534,10 @@ async function createQueryEmbedding(message) {
   });
 }
 
-async function startAnswerStream(message, historyContext, contextSnippets) {
+async function startAnswerStream(message, historyContext, contextSnippets, externalSignal) {
   return withTransientRetries('Gemini answer stream start', async () => {
     const abortController = createRequestAbortController(RAG_REQUEST_TIMEOUT_MS);
+    const combinedSignal = externalSignal || abortController.signal;
     try {
       return await ai.models.generateContentStream({
         model: 'gemini-2.5-flash',
@@ -539,7 +546,7 @@ async function startAnswerStream(message, historyContext, contextSnippets) {
           httpOptions: {
             timeout: RAG_REQUEST_TIMEOUT_MS,
           },
-          abortSignal: abortController.signal,
+          abortSignal: combinedSignal,
         },
         contents: [
           {
@@ -603,10 +610,16 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
 
     console.log('User query:', message.slice(0, 200));
 
-    setSseHeaders(res);
+    const clientAbortController = new AbortController();
+    req.on('close', () => {
+      if (!res.writableEnded) {
+        clientAbortController.abort();
+      }
+    });
 
     if (isAbusive(message)) {
-      const answer = 'Arre yaar, itni bakwaas mat kar! Thoda dimag laga ke baat kar.';
+      setSseHeaders(res);
+      const answer = 'Please keep the conversation respectful and campus-related. How can I assist you with Poornima academic or administrative queries?';
       writeSse(res, 'sources', { sources: [] });
       writeSse(res, 'token', { text: answer });
       writeSse(res, 'done', { answer, sources: [] });
@@ -615,28 +628,40 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
 
     const queryVector = await createQueryEmbedding(message);
     if (!Array.isArray(queryVector) || queryVector.length === 0) {
-      writeSse(res, 'error', { error: 'Failed to generate an embedding for the query.' });
-      return res.end();
+      return res.status(502).json({ error: 'Failed to generate an embedding for the query.' });
     }
 
-    const queryResponse = await pineconeIndex.query({
+    const pineconeQueryOptions = {
       topK: RAG_TOP_K,
       vector: queryVector,
       includeMetadata: true,
-    });
+    };
+    if (pineconeNamespace) {
+      pineconeQueryOptions.namespace = pineconeNamespace;
+    }
+    const queryResponse = await pineconeIndex.query(pineconeQueryOptions);
 
     const matches = Array.isArray(queryResponse?.matches) ? queryResponse.matches : [];
     const relevantMatches = filterRelevantMatches(matches);
     const contextSnippets = buildContextSnippets(relevantMatches);
-    const historyContext = buildHistoryContext(history);
+    const historyContext = buildHistoryContext(history, message);
     const sources = buildSources(relevantMatches);
 
+    if (clientAbortController.signal.aborted) {
+      return;
+    }
+
+    setSseHeaders(res);
     writeSse(res, 'sources', { sources });
 
-    const stream = await startAnswerStream(message, historyContext, contextSnippets);
+    const stream = await startAnswerStream(message, historyContext, contextSnippets, clientAbortController.signal);
 
     let answer = '';
     for await (const chunk of stream) {
+      if (clientAbortController.signal.aborted) {
+        break;
+      }
+
       const text = typeof chunk?.text === 'string' ? chunk.text : '';
       if (!text) {
         continue;
@@ -646,7 +671,11 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
       writeSse(res, 'token', { text });
     }
 
-    answer = sanitizeText(answer) || 'I could not generate a response. Please try again.';
+    if (clientAbortController.signal.aborted) {
+      return;
+    }
+
+    answer = answer.trim() || 'I could not generate a response. Please try again.';
     queryCache.set(queryCacheKey, { answer, sources });
     writeSse(res, 'done', { answer, sources });
     res.end();
@@ -675,7 +704,15 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
   }
 });
 
-app.post('/api/feedback', (req, res) => {
+const feedbackRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many feedback submissions. Please wait and try again.' },
+});
+
+app.post('/api/feedback', feedbackRateLimiter, (req, res) => {
   const rating = sanitizeText(req.body?.rating);
 
   if (!['up', 'down'].includes(rating)) {
@@ -694,6 +731,21 @@ app.post('/api/feedback', (req, res) => {
   console.log('Chat feedback:', JSON.stringify(feedback));
   res.json({ ok: true });
 });
+
+function gracefulShutdown(signal) {
+  console.log(`Received ${signal}. Closing HTTP server gracefully...`);
+  server.close(() => {
+    console.log('HTTP server closed. Exiting process.');
+    process.exit(0);
+  });
+  setTimeout(() => {
+    console.error('Forced shutdown due to timeout.');
+    process.exit(1);
+  }, 10000).unref();
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 const server = app.listen(PORT, () => {
   validateApiKeysAtStartup();
