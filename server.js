@@ -182,6 +182,7 @@ app.use(
         fontSrc: ["'self'", 'https://fonts.gstatic.com'],
         connectSrc: [
           "'self'",
+          'https://poornima-oracle.onrender.com',
           ...(DEFAULT_CORS_ORIGIN || []),
         ],
         imgSrc: ["'self'", 'data:', 'https:'],
