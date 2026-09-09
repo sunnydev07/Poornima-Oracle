@@ -59,6 +59,7 @@ import {
 import { renderWelcomeScreen, sendSuggestion } from './components/welcomeScreen.js';
 import { submitFeedback, renderFeedbackControls } from './api/feedback.js';
 import { callGeminiAPI, runDemoStream } from './api/sseClient.js';
+import { initPwa, triggerInstallPrompt } from './pwa/installPrompt.js';
 
 export function stopGenerating() {
     if (state.activeAbortController) {
@@ -349,6 +350,7 @@ window.toggleSidebarDesktop = toggleSidebarDesktop;
 window.startNewChat = startNewChat;
 window.handleSwitchConversation = handleSwitchConversation;
 window.handleDeleteConversation = handleDeleteConversation;
+window.triggerInstallPrompt = triggerInstallPrompt;
 
 // Application Initialization
 window.addEventListener('load', async () => {
@@ -423,6 +425,7 @@ window.addEventListener('load', async () => {
     initializeVoiceFeatures();
     initializeScrollAffordance();
     initModalListeners();
+    initPwa();
     refreshIcons();
 
     // Focus input on desktop only

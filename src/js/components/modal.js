@@ -5,6 +5,7 @@
 import { state } from '../state.js';
 import { getDefaultApiEndpoint, DEMO_MODE_STORAGE_KEY, GEMINI_ENDPOINT_STORAGE_KEY, FALLBACK_STORAGE_KEYS } from '../config.js';
 import { refreshIcons } from '../utils/dom.js';
+import { updateInstallUI } from '../pwa/installPrompt.js';
 
 export function showApiModal() {
     const endpointInput = document.getElementById('apiEndpoint');
@@ -33,6 +34,7 @@ export function showApiModal() {
     }
 
     toggleFallbackConfigVisibility();
+    updateInstallUI();
     const modal = document.getElementById('apiModal');
     if (modal) modal.classList.remove('hidden');
     refreshIcons();

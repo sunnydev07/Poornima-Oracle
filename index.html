@@ -10,6 +10,16 @@
     <!-- Tailwind CSS -->
     <link rel="stylesheet" href="styles.css">
 
+    <!-- Progressive Web App (PWA) Manifest & Icons -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Poornima Oracle">
+    <link rel="apple-touch-icon" href="/src/assets/icon-192.png">
+    <link rel="icon" type="image/svg+xml" href="/src/assets/icon.svg">
+    <link rel="icon" type="image/png" sizes="192x192" href="/src/assets/icon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="/src/assets/icon-512.png">
+
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
 
@@ -693,6 +703,35 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Section 3: Progressive Web App (PWA) -->
+                <div class="p-4 rounded-xl bg-white/[0.02] border border-white/5 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="smartphone" class="w-4 h-4 text-cyan-400"></i>
+                            <span class="text-xs font-semibold text-zinc-200 uppercase tracking-wider">App Installation & Offline</span>
+                        </div>
+                        <span id="pwaStatusBadge" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/5 text-zinc-400 border border-white/10">Web Version</span>
+                    </div>
+                    <p class="text-[11px] text-zinc-400 leading-normal" id="pwaStatusDesc">
+                        Install Poornima Oracle on your phone or desktop for a standalone full-screen view and offline chat history access.
+                    </p>
+                    <div id="pwaInstallActionContainer" class="pt-1">
+                        <button type="button" id="modalInstallBtn" onclick="triggerInstallPrompt()"
+                            class="w-full py-2.5 px-4 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-xs font-bold transition flex items-center justify-center gap-2 active:scale-98">
+                            <i data-lucide="download-cloud" class="w-4 h-4"></i>
+                            <span>Install Oracle App</span>
+                        </button>
+                        <div id="iosInstallGuide" class="hidden mt-2 p-2.5 rounded-lg bg-white/[0.03] border border-white/10 text-[11px] text-zinc-300 space-y-1">
+                            <p class="font-medium text-cyan-300 flex items-center gap-1.5">
+                                <i data-lucide="share" class="w-3.5 h-3.5"></i>
+                                <span>To install on iOS Safari:</span>
+                            </p>
+                            <p>1. Tap the <strong class="text-white">Share</strong> button in Safari toolbar.</p>
+                            <p>2. Scroll down and select <strong class="text-white">Add to Home Screen</strong>.</p>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Footer Actions -->
@@ -795,6 +834,11 @@
                     </h1>
                 </div>
                 <div class="flex items-center gap-2">
+                    <button id="installAppButton" onclick="triggerInstallPrompt()" aria-label="Install App"
+                        class="hidden border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 px-2.5 py-2 rounded-lg text-cyan-300 hover:text-cyan-200 transition flex items-center gap-1.5 active:scale-95 text-xs font-semibold whitespace-nowrap shadow-sm shadow-cyan-950/40">
+                        <i data-lucide="download" class="w-4 h-4"></i>
+                        <span class="hidden sm:inline">Install</span>
+                    </button>
                     <button id="autoReadToggle" onclick="toggleAutoRead()" aria-label="Toggle auto-read AI answers"
                         aria-pressed="false"
                         class="auto-read-toggle border border-white/10 bg-white/[0.03] px-3 py-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition flex items-center gap-2 active:scale-95 text-xs font-medium whitespace-nowrap">
