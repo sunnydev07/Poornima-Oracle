@@ -393,6 +393,185 @@
                 box-shadow: 0 0 0 0 rgba(244, 63, 94, 0);
             }
         }
+
+        /* Fallback Badge Styling (Hidden per user preference) */
+        .fallback-badge {
+            display: none !important;
+        }
+
+        .fallback-badge-tier1 {
+            background-color: rgba(245, 158, 11, 0.1);
+            border-color: rgba(245, 158, 11, 0.35);
+            color: #fcd34d;
+        }
+
+        .fallback-badge-tier2 {
+            background-color: rgba(6, 182, 212, 0.1);
+            border-color: rgba(6, 182, 212, 0.35);
+            color: #67e8f9;
+        }
+
+        .fallback-badge-exhausted {
+            background-color: rgba(63, 63, 70, 0.4);
+            border-color: rgba(113, 113, 122, 0.3);
+            color: #a1a1aa;
+        }
+
+        .fallback-badge-dot {
+            width: 0.45rem;
+            height: 0.45rem;
+            border-radius: 9999px;
+            flex-shrink: 0;
+            animation: pulseDot 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulseDot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.85); }
+        }
+
+        /* Auto-hiding Main Header on Scroll */
+        .main-header {
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                        margin-top 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                        opacity 0.25s ease;
+            will-change: transform, margin-top;
+        }
+
+        .main-header.header-hidden {
+            transform: translateY(-100%);
+            margin-top: -4rem;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* Tool Tray Accordion */
+        .tool-tray {
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(24, 24, 27, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: 0.75rem;
+            overflow: hidden;
+            font-size: 0.75rem;
+            margin-bottom: 0.5rem;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+            animation: fadeIn 0.25s ease-out forwards;
+        }
+
+        .tool-tray-header {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.45rem 0.75rem;
+            background: rgba(255, 255, 255, 0.02);
+            border: none;
+            color: #d4d4d8;
+            cursor: pointer;
+            transition: background 0.15s ease, color 0.15s ease;
+            text-align: left;
+        }
+
+        .tool-tray-header:hover {
+            background: rgba(255, 255, 255, 0.06);
+            color: #ffffff;
+        }
+
+        .tool-tray-chevron {
+            transition: transform 0.2s ease;
+        }
+
+        .tool-tray-chevron.rotate-180 {
+            transform: rotate(180deg);
+        }
+
+        .tool-tray-body {
+            padding: 0.4rem 0.65rem 0.55rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+        }
+
+        .tool-tray-body.hidden {
+            display: none !important;
+        }
+
+        .tool-step-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+            padding: 0.35rem 0.5rem;
+            border-radius: 0.5rem;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            color: #e4e4e7;
+            font-size: 0.73rem;
+            animation: slideIn 0.2s ease-out forwards;
+        }
+
+        .tool-spinner {
+            width: 0.85rem;
+            height: 0.85rem;
+            border: 2px solid rgba(34, 211, 238, 0.3);
+            border-top-color: #22d3ee;
+            border-radius: 9999px;
+            animation: spin 0.8s linear infinite;
+            flex-shrink: 0;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Settings Switch Toggle */
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 24px;
+            flex-shrink: 0;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            inset: 0;
+            background-color: #3f3f46;
+            transition: 0.25s;
+            border-radius: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 2px;
+            bottom: 2px;
+            background-color: #ffffff;
+            transition: 0.25s;
+            border-radius: 50%;
+        }
+
+        .toggle-switch input:checked + .toggle-slider {
+            background-color: #0891b2;
+            border-color: #22d3ee;
+        }
+
+        .toggle-switch input:checked + .toggle-slider:before {
+            transform: translateX(20px);
+            background-color: #ffffff;
+        }
     </style>
 </head>
 
@@ -400,25 +579,140 @@
 
     <canvas id="click-spark-canvas"></canvas>
 
-    <!-- API Setup Modal -->
+    <!-- Settings & Dual Cloud Fallback Modal -->
     <div id="apiModal"
-        class="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center hidden transition-opacity duration-300 px-4">
-        <div class="glass bg-zinc-900/90 rounded-2xl p-6 max-w-md w-full shadow-2xl transform transition-all scale-100">
-            <div class="flex items-center gap-3 mb-4">
-                <div class="p-2 bg-cyan-500/10 rounded-lg">
-                    <i data-lucide="settings" class="w-5 h-5 text-cyan-400"></i>
+        class="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center hidden transition-opacity duration-300 px-4"
+        onclick="handleModalBackdropClick(event)">
+        <div class="glass bg-zinc-900/95 border border-white/10 rounded-2xl p-6 max-w-lg w-full shadow-2xl transform transition-all scale-100 max-h-[90vh] overflow-y-auto"
+            onclick="event.stopPropagation()">
+            <!-- Header -->
+            <div class="flex items-center justify-between pb-4 border-b border-white/10 mb-5">
+                <div class="flex items-center gap-3">
+                    <div class="p-2 bg-cyan-500/10 rounded-xl border border-cyan-500/20">
+                        <i data-lucide="sliders" class="w-5 h-5 text-cyan-400"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-lg font-bold text-white leading-tight">Settings & Cloud Fallback</h2>
+                        <p class="text-zinc-400 text-xs">Configure backend server & free dual-cloud agent failover</p>
+                    </div>
                 </div>
-                <h2 class="text-xl font-bold text-white">Setup API</h2>
+                <button type="button" onclick="closeApiModal()" aria-label="Close settings"
+                    class="p-1.5 text-zinc-400 hover:text-white hover:bg-white/10 rounded-lg transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
             </div>
-            <p class="text-zinc-400 text-sm mb-4">Configure your backend API endpoint.</p>
-            <input type="text" id="apiEndpoint"
-                class="w-full glass-input px-4 py-3 rounded-xl text-white placeholder-zinc-600 focus:outline-none focus:border-cyan-500/50 transition-all mb-4 text-sm"
-                placeholder="https://poornima-oracle.onrender.com/api/chat" />
-            <div class="flex justify-end gap-3">
-                <button onclick="skipSetup()"
-                    class="px-4 py-2 text-sm text-zinc-400 hover:text-white transition-colors">Demo Mode</button>
-                <button onclick="saveApiEndpoint()"
-                    class="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-bold rounded-xl shadow-lg shadow-cyan-900/20 transition-all">Save</button>
+
+            <div class="space-y-5">
+                <!-- Section 1: Backend Connection -->
+                <div class="p-4 rounded-xl bg-white/[0.02] border border-white/5 space-y-3">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="server" class="w-4 h-4 text-cyan-400"></i>
+                        <label for="apiEndpoint" class="text-xs font-semibold text-zinc-200 uppercase tracking-wider">Backend API Endpoint</label>
+                    </div>
+                    <input type="text" id="apiEndpoint"
+                        class="w-full glass-input px-3.5 py-2.5 rounded-xl text-white placeholder-zinc-600 focus:outline-none focus:border-cyan-500/50 transition-all text-xs"
+                        placeholder="https://poornima-oracle.onrender.com/api/chat" />
+                    <p class="text-[11px] text-zinc-500">Defaults to your local or hosted origin (<code class="text-zinc-400">/api/chat</code>).</p>
+                </div>
+
+                <!-- Section 2: Dual-Cloud Fallback Agent -->
+                <div class="p-4 rounded-xl bg-white/[0.02] border border-white/5 space-y-4">
+                    <div class="flex items-center justify-between gap-3">
+                        <div class="flex items-start gap-2.5">
+                            <div class="p-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg mt-0.5">
+                                <i data-lucide="zap" class="w-4 h-4 text-amber-400"></i>
+                            </div>
+                            <div>
+                                <label class="text-sm font-semibold text-white cursor-pointer" for="fallbackAgentToggle">
+                                    Autonomous Fallback Agent
+                                </label>
+                                <p class="text-[11px] text-zinc-400 leading-normal mt-0.5">
+                                    Live web searches and cloud LLM fallback when vector records are absent or Gemini is rate-limited.
+                                </p>
+                            </div>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="fallbackAgentToggle" checked onchange="toggleFallbackConfigVisibility()" />
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+
+                    <!-- Fallback Configuration Fields -->
+                    <div id="fallbackConfigSection" class="space-y-3.5 pt-3 border-t border-white/5 transition-opacity duration-200">
+                        <!-- OpenRouter Key -->
+                        <div>
+                            <div class="flex items-center justify-between mb-1.5">
+                                <span class="text-xs font-medium text-zinc-300 flex items-center gap-1.5">
+                                    <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+                                    OpenRouter Free API Key (Tier 1)
+                                </span>
+                                <span class="text-[10px] text-amber-300/80 uppercase font-mono">Zero Cost</span>
+                            </div>
+                            <div class="relative">
+                                <input type="password" id="openrouterApiKey"
+                                    class="w-full glass-input px-3.5 py-2.5 pr-10 rounded-xl text-white placeholder-zinc-600 focus:outline-none focus:border-amber-500/50 transition-all text-xs"
+                                    placeholder="sk-or-v1-... (optional user key)" />
+                                <button type="button" onclick="togglePasswordVisibility('openrouterApiKey', this)"
+                                    class="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 p-1"
+                                    aria-label="Toggle password visibility">
+                                    <i data-lucide="eye" class="w-4 h-4"></i>
+                                </button>
+                            </div>
+                            <p class="text-[11px] text-zinc-500 mt-1">
+                                Strictly requests free models (<code class="text-amber-300/80">:free</code>). If blank, server default key is used.
+                            </p>
+                        </div>
+
+                        <!-- Ollama Cloud Host & Key -->
+                        <div class="pt-2 border-t border-white/5">
+                            <div class="flex items-center justify-between mb-1.5">
+                                <span class="text-xs font-medium text-zinc-300 flex items-center gap-1.5">
+                                    <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+                                    Ollama Cloud (Tier 2 Failover)
+                                </span>
+                                <span class="text-[10px] text-cyan-300/80 uppercase font-mono">Backup</span>
+                            </div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-1.5">
+                                <div>
+                                    <input type="text" id="ollamaHost"
+                                        class="w-full glass-input px-3 py-2 rounded-xl text-white placeholder-zinc-600 focus:outline-none focus:border-cyan-500/50 transition-all text-xs"
+                                        placeholder="https://ollama.com" />
+                                </div>
+                                <div class="relative">
+                                    <input type="password" id="ollamaApiKey"
+                                        class="w-full glass-input px-3 py-2 pr-10 rounded-xl text-white placeholder-zinc-600 focus:outline-none focus:border-cyan-500/50 transition-all text-xs"
+                                        placeholder="API Key (optional)" />
+                                    <button type="button" onclick="togglePasswordVisibility('ollamaApiKey', this)"
+                                        class="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 p-1"
+                                        aria-label="Toggle password visibility">
+                                        <i data-lucide="eye" class="w-3.5 h-3.5"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <p class="text-[11px] text-zinc-500">Secondary failover provider if OpenRouter experiences outage.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer Actions -->
+            <div class="flex items-center justify-between pt-5 mt-4 border-t border-white/10">
+                <button type="button" onclick="skipSetup()"
+                    class="px-3 py-2 text-xs text-zinc-400 hover:text-white transition-colors flex items-center gap-1.5">
+                    <i data-lucide="play-circle" class="w-3.5 h-3.5"></i>
+                    <span>Demo Mode</span>
+                </button>
+                <div class="flex items-center gap-2.5">
+                    <button type="button" onclick="closeApiModal()"
+                        class="px-4 py-2 text-xs text-zinc-400 hover:text-white transition-colors rounded-xl hover:bg-white/5">
+                        Cancel
+                    </button>
+                    <button type="button" onclick="saveApiEndpoint()"
+                        class="px-5 py-2.5 bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 text-white text-xs font-bold rounded-xl shadow-lg shadow-cyan-900/20 active:scale-95 transition-all flex items-center gap-1.5">
+                        <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                        <span>Save Settings</span>
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -486,8 +780,8 @@
         <main class="flex-1 flex flex-col w-full relative bg-transparent overflow-hidden">
 
             <!-- Header -->
-            <header
-                class="h-16 border-b border-white/5 flex items-center justify-between px-4 md:px-8 bg-zinc-950/80 backdrop-blur-md z-30 sticky top-0">
+            <header id="mainHeader"
+                class="main-header h-16 border-b border-white/5 flex items-center justify-between px-4 md:px-8 bg-zinc-950/80 backdrop-blur-md z-30 sticky top-0">
                 <div class="flex items-center gap-3">
                     <!-- Mobile Menu Toggle -->
                     <button onclick="openMobileSidebar()"
@@ -587,1680 +881,8 @@
         </div>
     </template>
 
-    <script>
-        function refreshIcons() {
-            if (window.lucide?.createIcons) {
-                lucide.createIcons();
-            }
-        }
-
-        refreshIcons();
-        if (window.marked) {
-            marked.setOptions({ gfm: true, breaks: true });
-        }
-
-        const DEFAULT_API_ENDPOINT = 'https://poornima-oracle.onrender.com/api/chat';
-        const HISTORY_STORAGE_KEY = 'poornimaOracleConversationHistory';
-        const DEMO_MODE_STORAGE_KEY = 'poornimaOracleDemoMode';
-        const AUTO_READ_STORAGE_KEY = 'poornimaOracleAutoRead';
-        const PROMPT_COLOR_CLASSES = {
-            cyan: {
-                border: 'hover:border-cyan-500/30',
-                bg: 'bg-cyan-500/10',
-                text: 'text-cyan-400',
-                hoverText: 'group-hover:text-cyan-300',
-            },
-            rose: {
-                border: 'hover:border-rose-500/30',
-                bg: 'bg-rose-500/10',
-                text: 'text-rose-400',
-                hoverText: 'group-hover:text-rose-300',
-            },
-            amber: {
-                border: 'hover:border-amber-500/30',
-                bg: 'bg-amber-500/10',
-                text: 'text-amber-400',
-                hoverText: 'group-hover:text-amber-300',
-            },
-            emerald: {
-                border: 'hover:border-emerald-500/30',
-                bg: 'bg-emerald-500/10',
-                text: 'text-emerald-400',
-                hoverText: 'group-hover:text-emerald-300',
-            },
-        };
-        const ALL_PROMPTS = [
-            {
-                title: 'Anti-Ragging',
-                description: 'Policy and reporting',
-                icon: 'shield',
-                color: 'cyan',
-                prompt: 'What is Poornima University anti-ragging policy, and what should a student do to report an incident?',
-            },
-            {
-                title: 'Hostel Rules',
-                description: 'Prohibited items',
-                icon: 'ban',
-                color: 'rose',
-                prompt: 'What items are prohibited in Poornima hostel rooms, and why are those rules enforced?',
-            },
-            {
-                title: 'SCOPE',
-                description: 'Scholarship details',
-                icon: 'graduation-cap',
-                color: 'emerald',
-                prompt: 'Explain the SCOPE scholarship for online courses, including eligibility, benefits, and how to apply.',
-            },
-            {
-                title: 'Library',
-                description: 'Hours and services',
-                icon: 'library',
-                color: 'amber',
-                prompt: 'What are the library hours at Poornima, and what services can students use there?',
-            },
-            {
-                title: 'Attendance',
-                description: 'Minimum rules',
-                icon: 'clipboard-check',
-                color: 'cyan',
-                prompt: 'Explain Poornima attendance rules, minimum attendance requirements, and what happens if a student falls short.',
-            },
-            {
-                title: 'Back Exam',
-                description: 'Process overview',
-                icon: 'refresh-cw',
-                color: 'rose',
-                prompt: 'Explain the back exam process at Poornima, including forms, fees, schedule, and result handling.',
-            },
-            {
-                title: 'Fees',
-                description: 'Payment guidance',
-                icon: 'receipt',
-                color: 'emerald',
-                prompt: 'Summarize the Poornima fee structure and payment process for a student who wants clear next steps.',
-            },
-            {
-                title: 'Placements',
-                description: 'Campus hiring',
-                icon: 'briefcase',
-                color: 'amber',
-                prompt: 'How does the Poornima placement process work, from registration to interviews and offer letters?',
-            },
-            {
-                title: 'Campus Wi-Fi',
-                description: 'Access help',
-                icon: 'wifi',
-                color: 'cyan',
-                prompt: 'How can a Poornima student access campus Wi-Fi, and what should they do if login does not work?',
-            },
-            {
-                title: 'Labs',
-                description: 'Usage rules',
-                icon: 'microscope',
-                color: 'emerald',
-                prompt: 'Explain Poornima lab access, lab rules, and how students should prepare for practical sessions.',
-            },
-            {
-                title: 'Clubs',
-                description: 'Events and activities',
-                icon: 'calendar-days',
-                color: 'amber',
-                prompt: 'What clubs and events can Poornima students join, and how should a fresher get started?',
-            },
-            {
-                title: 'Canteen',
-                description: 'Food options',
-                icon: 'utensils',
-                color: 'rose',
-                prompt: 'Tell me about Poornima canteen options, timings, payment, and basic student etiquette.',
-            },
-            {
-                title: 'Sports',
-                description: 'Facilities and teams',
-                icon: 'trophy',
-                color: 'cyan',
-                prompt: 'What sports facilities, teams, and student participation options are available at Poornima?',
-            },
-            {
-                title: 'Transport',
-                description: 'Bus support',
-                icon: 'bus',
-                color: 'emerald',
-                prompt: 'Explain Poornima transport options, bus route support, passes, and whom students should contact for changes.',
-            },
-            {
-                title: 'Hostel Mess',
-                description: 'Meal timings',
-                icon: 'chef-hat',
-                color: 'amber',
-                prompt: 'What are Poornima hostel mess timings, common rules, and what should students do for meal-related issues?',
-            },
-            {
-                title: 'Faculty Hours',
-                description: 'Meet teachers',
-                icon: 'users',
-                color: 'rose',
-                prompt: 'How can students meet faculty during faculty hours or office hours for academic help at Poornima?',
-            },
-            {
-                title: 'Registration',
-                description: 'Courses and forms',
-                icon: 'list-checks',
-                color: 'cyan',
-                prompt: 'Explain the Poornima course registration process, important forms, deadlines, and common mistakes to avoid.',
-            },
-            {
-                title: 'Late Work',
-                description: 'Submission policy',
-                icon: 'clock',
-                color: 'rose',
-                prompt: 'What is the late submission process at Poornima, and how should a student request an extension properly?',
-            },
-            {
-                title: 'Alumni',
-                description: 'Network benefits',
-                icon: 'network',
-                color: 'emerald',
-                prompt: 'How can Poornima students use the alumni network for mentoring, internships, placements, and career guidance?',
-            },
-            {
-                title: 'Wellbeing',
-                description: 'Counseling and advice',
-                icon: 'heart-handshake',
-                color: 'amber',
-                prompt: 'How can students access mental health counseling at Poornima, and give one short practical piece of student advice for today.',
-            },
-        ];
-
-        function getDefaultApiEndpoint() {
-            return DEFAULT_API_ENDPOINT;
-        }
-
-        function ensureApiEndpoint() {
-            const storedEndpoint = localStorage.getItem('geminiApiEndpoint');
-            const normalizedStoredEndpoint = typeof storedEndpoint === 'string' ? storedEndpoint.trim() : '';
-            const endpoint = normalizedStoredEndpoint || getDefaultApiEndpoint();
-
-            if (!normalizedStoredEndpoint) {
-                localStorage.setItem('geminiApiEndpoint', endpoint);
-            }
-
-            return endpoint;
-        }
-
-        // ===== ConversationStore: IndexedDB-backed persistent multi-conversation storage =====
-        class ConversationStore {
-            constructor() {
-                this.dbName = 'poornima-oracle-db';
-                this.storeName = 'conversations';
-                this.db = null;
-                this._fallback = false;
-            }
-
-            async init() {
-                try {
-                    this.db = await this._openDB();
-                } catch (e) {
-                    console.warn('[Oracle] IndexedDB unavailable, using localStorage fallback:', e);
-                    this._fallback = true;
-                }
-            }
-
-            _openDB() {
-                return new Promise((resolve, reject) => {
-                    const request = indexedDB.open(this.dbName, 1);
-                    request.onupgradeneeded = (e) => {
-                        const db = e.target.result;
-                        if (!db.objectStoreNames.contains(this.storeName)) {
-                            const os = db.createObjectStore(this.storeName, { keyPath: 'id' });
-                            os.createIndex('updatedAt', 'updatedAt', { unique: false });
-                        }
-                    };
-                    request.onsuccess = (e) => resolve(e.target.result);
-                    request.onerror = (e) => reject(e.target.error);
-                });
-            }
-
-            generateId() {
-                return `conv-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-            }
-
-            generateTitle(message) {
-                if (!message) return 'New Chat';
-                const maxLen = 45;
-                const text = String(message).trim().replace(/\s+/g, ' ');
-                if (text.length <= maxLen) return text;
-                const truncated = text.substring(0, maxLen);
-                const lastSpace = truncated.lastIndexOf(' ');
-                return (lastSpace > 15 ? truncated.substring(0, lastSpace) : truncated) + '\u2026';
-            }
-
-            async saveConversation(conv) {
-                if (!conv || !conv.id) return;
-                conv.updatedAt = Date.now();
-                if (this._fallback) { this._fbSave(conv); return; }
-                return new Promise((resolve, reject) => {
-                    const tx = this.db.transaction(this.storeName, 'readwrite');
-                    tx.objectStore(this.storeName).put(conv);
-                    tx.oncomplete = () => resolve();
-                    tx.onerror = (e) => reject(e.target.error);
-                });
-            }
-
-            async getConversation(id) {
-                if (this._fallback) return this._fbLoad().find(c => c.id === id) || null;
-                return new Promise((resolve, reject) => {
-                    const tx = this.db.transaction(this.storeName, 'readonly');
-                    const req = tx.objectStore(this.storeName).get(id);
-                    req.onsuccess = (e) => resolve(e.target.result || null);
-                    req.onerror = (e) => reject(e.target.error);
-                });
-            }
-
-            async getAllConversations() {
-                if (this._fallback) {
-                    return this._fbLoad().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-                }
-                return new Promise((resolve, reject) => {
-                    const tx = this.db.transaction(this.storeName, 'readonly');
-                    const req = tx.objectStore(this.storeName).index('updatedAt').getAll();
-                    req.onsuccess = (e) => resolve((e.target.result || []).reverse());
-                    req.onerror = (e) => reject(e.target.error);
-                });
-            }
-
-            async deleteConversation(id) {
-                if (this._fallback) {
-                    const all = this._fbLoad().filter(c => c.id !== id);
-                    localStorage.setItem('poornimaOracleConversations', JSON.stringify(all));
-                    return;
-                }
-                return new Promise((resolve, reject) => {
-                    const tx = this.db.transaction(this.storeName, 'readwrite');
-                    tx.objectStore(this.storeName).delete(id);
-                    tx.oncomplete = () => resolve();
-                    tx.onerror = (e) => reject(e.target.error);
-                });
-            }
-
-            _fbSave(conv) {
-                const all = this._fbLoad();
-                const idx = all.findIndex(c => c.id === conv.id);
-                if (idx >= 0) all[idx] = conv; else all.unshift(conv);
-                localStorage.setItem('poornimaOracleConversations', JSON.stringify(all));
-            }
-
-            _fbLoad() {
-                try {
-                    return JSON.parse(localStorage.getItem('poornimaOracleConversations') || '[]');
-                } catch (e) { return []; }
-            }
-        }
-
-        // ===== Sidebar Conversation List Rendering =====
-        async function renderSidebarConversations() {
-            const listEl = document.getElementById('conversationsList');
-            const emptyEl = document.getElementById('convListEmpty');
-            if (!listEl || !store) return;
-
-            let convs = [];
-            try { convs = await store.getAllConversations(); } catch (e) { console.warn(e); }
-
-            // Remove previously-rendered dynamic items
-            listEl.querySelectorAll('[data-conv-item]').forEach(el => el.remove());
-
-            const activeId = activeConversation ? activeConversation.id : '';
-
-            if (convs.length === 0) {
-                if (emptyEl) emptyEl.classList.remove('hidden');
-                return;
-            }
-            if (emptyEl) emptyEl.classList.add('hidden');
-
-            const fragment = document.createDocumentFragment();
-            convs.forEach(conv => {
-                const isActive = conv.id === activeId;
-                const item = document.createElement('div');
-                item.setAttribute('data-conv-item', conv.id);
-                item.className = [
-                    'sidebar-item group flex items-center gap-2.5 p-3 rounded-xl cursor-pointer',
-                    'border transition-all mb-1 touch-manipulation',
-                    isActive
-                        ? 'bg-zinc-800/70 border-cyan-500/20 text-white shadow-[0_0_12px_rgba(34,211,238,0.08)]'
-                        : 'border-transparent hover:bg-white/5 hover:border-white/10 text-zinc-400 hover:text-zinc-200',
-                ].join(' ');
-
-                const safeId = escapeHtml(conv.id);
-                item.innerHTML = `
-                    <i data-lucide="${isActive ? 'message-square-text' : 'message-square'}"
-                        class="sidebar-icon w-4 h-4 ${isActive ? 'text-cyan-400' : 'text-zinc-600 group-hover:text-zinc-400'} shrink-0 transition-colors"></i>
-                    <span class="sidebar-text text-xs truncate flex-1 ${isActive ? 'font-medium text-white' : 'font-light'}">${escapeHtml(conv.title || 'New Chat')}</span>
-                    <button class="sidebar-text opacity-0 group-hover:opacity-100 p-1 rounded-lg
-                                   text-zinc-600 hover:text-rose-400 hover:bg-rose-500/10 transition-all shrink-0"
-                            title="Delete conversation"
-                            onclick="event.stopPropagation(); handleDeleteConversation('${safeId}')">
-                        <i data-lucide="trash-2" class="w-3 h-3"></i>
-                    </button>`;
-
-                item.addEventListener('click', () => handleSwitchConversation(conv.id));
-                fragment.appendChild(item);
-            });
-
-            listEl.prepend(fragment);
-            refreshIcons();
-        }
-
-        async function handleSwitchConversation(id) {
-            if (activeConversation && activeConversation.id === id) {
-                if (window.innerWidth < 768) closeMobileSidebar();
-                return;
-            }
-            stopGenerating();
-
-            // Save current conversation before switching
-            if (activeConversation && activeConversation.messages.length > 0) {
-                try { await store.saveConversation(activeConversation); } catch (e) { console.warn(e); }
-            }
-
-            try {
-                const conv = await store.getConversation(id);
-                if (!conv) return;
-
-                activeConversation = conv;
-                conversationHistory = activeConversation.messages;
-                localStorage.setItem('activeConversationId', id);
-                chatStarted = conv.messages.length > 0;
-                messageCount = conv.messages.length;
-                isLoading = false;
-                stopSpeechRecognition();
-                stopCurrentSpeech();
-
-                const chatContainer = document.getElementById('chatContainer');
-                chatContainer.innerHTML = '';
-
-                if (conv.messages.length === 0) {
-                    renderWelcomeScreen();
-                } else {
-                    for (const msg of conv.messages) {
-                        if (msg.role === 'user') renderUserMessage(msg);
-                        else if (msg.role === 'assistant') renderAssistantMessage(msg);
-                    }
-                    requestAnimationFrame(() => {
-                        chatContainer.scrollTop = chatContainer.scrollHeight;
-                        updateScrollToBottomButton();
-                    });
-                }
-
-                const input = document.getElementById('messageInput');
-                input.value = '';
-                input.style.height = 'auto';
-                const sendBtn = document.getElementById('sendButton');
-                sendBtn.disabled = false;
-                sendBtn.innerHTML = '<i data-lucide="send" class="w-5 h-5"></i>';
-
-                await renderSidebarConversations();
-                refreshIcons();
-                if (window.innerWidth < 768) closeMobileSidebar();
-                else input.focus();
-            } catch (e) { 
-                console.error('[Oracle] Failed to switch conversation:', e);
-            }
-        }
-
-        async function handleDeleteConversation(id) {
-            if (!confirm('Are you sure you want to delete this conversation?')) return;
-            try {
-                await store.deleteConversation(id);
-                if (activeConversation && activeConversation.id === id) {
-                    await startNewChat();
-                } else {
-                    await renderSidebarConversations();
-                }
-            } catch (e) {
-                console.error('[Oracle] Failed to delete conversation:', e);
-            }
-        }
-
-        async function migrateOldHistory() {
-            const oldData = localStorage.getItem(HISTORY_STORAGE_KEY);
-            if (!oldData) return null;
-            try {
-                const messages = JSON.parse(oldData);
-                if (!Array.isArray(messages) || messages.length === 0) {
-                    localStorage.removeItem(HISTORY_STORAGE_KEY);
-                    return null;
-                }
-                const firstUserMsg = messages.find(m => m.role === 'user');
-                const conv = {
-                    id: store.generateId(),
-                    title: store.generateTitle(firstUserMsg ? firstUserMsg.content : 'Previous Chat'),
-                    titled: true,
-                    createdAt: Date.now(),
-                    updatedAt: Date.now(),
-                    messages,
-                };
-                await store.saveConversation(conv);
-                localStorage.removeItem(HISTORY_STORAGE_KEY);
-                console.log('[Oracle] Migrated old history to IndexedDB.');
-                return conv.id;
-            } catch (e) {
-                console.warn('[Oracle] Migration failed:', e);
-                return null;
-            }
-        }
-
-        // ===== State Variables =====
-        let chatStarted = false;
-        let messageCount = 0;
-        let conversationHistory = [];       // Always mirrors activeConversation.messages
-        let demoMode = localStorage.getItem(DEMO_MODE_STORAGE_KEY) === 'true';
-        let apiEndpoint = ensureApiEndpoint();
-        let isLoading = false;
-        let activeAbortController = null;
-
-        function stopGenerating() {
-            if (activeAbortController) {
-                try {
-                    activeAbortController.abort();
-                } catch (e) {
-                    console.warn('[Oracle] Abort error:', e);
-                }
-                activeAbortController = null;
-            }
-            isLoading = false;
-            const sendBtn = document.getElementById('sendButton');
-            if (sendBtn) {
-                sendBtn.disabled = false;
-                sendBtn.innerHTML = '<i data-lucide="send" class="w-5 h-5"></i>';
-                sendBtn.title = 'Send message';
-                sendBtn.setAttribute('aria-label', 'Send message');
-                sendBtn.onclick = () => sendMessage({ allowSpeech: true });
-            }
-            refreshIcons();
-        }
-        let isSidebarCollapsed = false;
-        let speechRecognition = null;
-        let isListening = false;
-        let autoReadEnabled = localStorage.getItem(AUTO_READ_STORAGE_KEY) === 'true';
-        let speechUserGestureUnlocked = false;
-        let currentSpeechMessageId = '';
-        let currentSpeechUtterance = null;
-        let scrollAffordanceTimer = null;
-        let store = null;                   // ConversationStore instance
-        let activeConversation = null;      // Currently active conversation object
-
-        window.addEventListener('load', async () => {
-            apiEndpoint = ensureApiEndpoint();
-            document.getElementById('apiEndpoint').value = apiEndpoint;
-
-            // 1. Initialize IndexedDB conversation store
-            store = new ConversationStore();
-            await store.init();
-
-            // 2. Migrate any old single-conversation localStorage data
-            const migratedId = await migrateOldHistory();
-
-            // 3. Determine which conversation to restore
-            const savedActiveId = migratedId || localStorage.getItem('activeConversationId');
-            let restored = false;
-
-            if (savedActiveId) {
-                try {
-                    const conv = await store.getConversation(savedActiveId);
-                    if (conv && conv.messages.length > 0) {
-                        activeConversation = conv;
-                        conversationHistory = activeConversation.messages;
-                        chatStarted = true;
-                        messageCount = conv.messages.length;
-                        localStorage.setItem('activeConversationId', conv.id);
-
-                        const chatContainer = document.getElementById('chatContainer');
-                        chatContainer.innerHTML = '';
-                        for (const msg of conv.messages) {
-                            if (msg.role === 'user') renderUserMessage(msg);
-                            else if (msg.role === 'assistant') renderAssistantMessage(msg);
-                        }
-                        requestAnimationFrame(() => {
-                            chatContainer.scrollTop = chatContainer.scrollHeight;
-                            updateScrollToBottomButton();
-                        });
-                        restored = true;
-                    }
-                } catch (e) {
-                    console.warn('[Oracle] Failed to restore conversation:', e);
-                }
-            }
-
-            if (!restored) {
-                // Start a fresh conversation shell for the welcome screen
-                activeConversation = {
-                    id: store.generateId(),
-                    title: 'New Chat',
-                    titled: false,
-                    createdAt: Date.now(),
-                    updatedAt: Date.now(),
-                    messages: [],
-                };
-                conversationHistory = activeConversation.messages;
-                localStorage.setItem('activeConversationId', activeConversation.id);
-                renderWelcomeScreen();
-            }
-
-            // 4. Render sidebar with all stored conversations
-            await renderSidebarConversations();
-
-            initializeVoiceFeatures();
-            initializeScrollAffordance();
-            refreshIcons();
-
-            // Focus input on desktop only
-            if (window.innerWidth > 768) {
-                document.getElementById('messageInput').focus();
-            }
-
-            new ClickSpark();
-
-            // Enabled native zoom for accessibility (WCAG 1.4.4 compliant)
-        });
-
-        // --- Sidebar Logic ---
-        function openMobileSidebar() {
-            const sidebar = document.getElementById('sidebar');
-            const overlay = document.getElementById('sidebarOverlay');
-            if (sidebar) sidebar.style.width = '';
-            sidebar.classList.remove('-translate-x-full');
-            overlay.classList.remove('hidden');
-        }
-
-        function closeMobileSidebar() {
-            const sidebar = document.getElementById('sidebar');
-            const overlay = document.getElementById('sidebarOverlay');
-            sidebar.classList.add('-translate-x-full');
-            overlay.classList.add('hidden');
-        }
-
-        function toggleSidebarDesktop() {
-            const sidebar = document.getElementById('sidebar');
-            const collapseIcon = document.getElementById('collapseIcon');
-            isSidebarCollapsed = !isSidebarCollapsed;
-
-            if (isSidebarCollapsed) {
-                sidebar.classList.add('collapsed', 'w-20');
-                sidebar.classList.remove('w-72', 'md:w-72');
-                // Need to override tailwind class for width
-                sidebar.style.width = '80px';
-                collapseIcon.classList.add('rotate-180');
-            } else {
-                sidebar.classList.remove('collapsed', 'w-20');
-                sidebar.classList.add('w-72');
-                sidebar.style.width = ''; // Reset inline style to use class
-                collapseIcon.classList.remove('rotate-180');
-            }
-        }
-
-        async function startNewChat() {
-            // 1. Save current conversation if it has messages
-            if (activeConversation && activeConversation.messages.length > 0) {
-                try { await store.saveConversation(activeConversation); } catch (e) { console.warn(e); }
-            }
-
-            // 2. Stop any in-flight activity
-            stopGenerating();
-            stopSpeechRecognition();
-            stopCurrentSpeech();
-            chatStarted = false;
-            messageCount = 0;
-            isLoading = false;
-
-            // 3. Create a fresh conversation object
-            activeConversation = {
-                id: store.generateId(),
-                title: 'New Chat',
-                titled: false,
-                createdAt: Date.now(),
-                updatedAt: Date.now(),
-                messages: [],
-            };
-            conversationHistory = activeConversation.messages;
-            localStorage.setItem('activeConversationId', activeConversation.id);
-
-            // 4. Reset UI
-            const chatContainer = document.getElementById('chatContainer');
-            chatContainer.innerHTML = '';
-            renderWelcomeScreen();
-            updateScrollToBottomButton();
-
-            // 5. Reset Input
-            const input = document.getElementById('messageInput');
-            input.value = '';
-            input.style.height = 'auto';
-
-            // 6. Reset Button
-            const sendBtn = document.getElementById('sendButton');
-            sendBtn.disabled = false;
-            sendBtn.innerHTML = '<i data-lucide="send" class="w-5 h-5"></i>';
-
-            // 7. Refresh Icons
-            refreshIcons();
-
-            // 8. Update sidebar + close on mobile
-            await renderSidebarConversations();
-
-            if (window.innerWidth < 768) {
-                closeMobileSidebar();
-            } else {
-                input.focus();
-            }
-        }
-
-        function initializeScrollAffordance() {
-            const chatContainer = document.getElementById('chatContainer');
-            if (!chatContainer) return;
-
-            chatContainer.addEventListener('scroll', handleChatScroll, { passive: true });
-            updateScrollToBottomButton();
-        }
-
-        function handleChatScroll() {
-            if (scrollAffordanceTimer) return;
-
-            scrollAffordanceTimer = window.setTimeout(() => {
-                scrollAffordanceTimer = null;
-                updateScrollToBottomButton();
-            }, 100);
-        }
-
-        function updateScrollToBottomButton() {
-            const chatContainer = document.getElementById('chatContainer');
-            const scrollButton = document.getElementById('scrollToBottomButton');
-            if (!chatContainer || !scrollButton) return;
-
-            const isAwayFromBottom = chatContainer.scrollTop < chatContainer.scrollHeight - chatContainer.clientHeight - 100;
-            scrollButton.classList.toggle('hidden', !isAwayFromBottom);
-        }
-
-        function scrollChatToBottom() {
-            const chatContainer = document.getElementById('chatContainer');
-            if (!chatContainer) return;
-
-            chatContainer.scrollTo({ top: chatContainer.scrollHeight, behavior: 'smooth' });
-            window.setTimeout(updateScrollToBottomButton, 120);
-        }
-
-        // --- Standard Functions ---
-        function showApiModal() {
-            document.getElementById('apiEndpoint').value = demoMode ? '' : apiEndpoint;
-            document.getElementById('apiModal').classList.remove('hidden');
-        }
-
-        function saveApiEndpoint() {
-            const endpoint = document.getElementById('apiEndpoint').value.trim() || getDefaultApiEndpoint();
-            apiEndpoint = endpoint;
-            demoMode = false;
-            localStorage.setItem(DEMO_MODE_STORAGE_KEY, 'false');
-            localStorage.setItem('geminiApiEndpoint', endpoint);
-            document.getElementById('apiModal').classList.add('hidden');
-        }
-
-        function skipSetup() {
-            demoMode = true;
-            apiEndpoint = '';
-            localStorage.setItem(DEMO_MODE_STORAGE_KEY, 'true');
-            document.getElementById('apiModal').classList.add('hidden');
-        }
-
-        function sendSuggestion(text) {
-            document.getElementById('messageInput').value = text;
-            adjustTextareaHeight(document.getElementById('messageInput'));
-            sendMessage({ allowSpeech: true });
-        }
-
-        function adjustTextareaHeight(el) {
-            el.style.height = 'auto';
-            el.style.height = Math.min(el.scrollHeight, 150) + 'px';
-        }
-
-        function handleKeyPress(event) {
-            if (event.isComposing || event.keyCode === 229) return;
-            if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                sendMessage({ allowSpeech: true });
-            }
-        }
-
-        // --- Voice Integration ---
-        function initializeVoiceFeatures() {
-            updateAutoReadToggle();
-
-            const micButton = document.getElementById('micButton');
-            if (!getSpeechRecognitionConstructor() && micButton) {
-                micButton.classList.add('hidden');
-                micButton.setAttribute('aria-hidden', 'true');
-            }
-
-            const autoReadToggle = document.getElementById('autoReadToggle');
-            if (!canUseSpeechSynthesis() && autoReadToggle) {
-                autoReadToggle.classList.add('hidden');
-                autoReadToggle.setAttribute('aria-hidden', 'true');
-            }
-        }
-
-        function getSpeechRecognitionConstructor() {
-            return window.SpeechRecognition || window.webkitSpeechRecognition || null;
-        }
-
-        function toggleSpeechRecognition() {
-            if (isListening) {
-                stopSpeechRecognition();
-                return;
-            }
-
-            const RecognitionCtor = getSpeechRecognitionConstructor();
-            const micButton = document.getElementById('micButton');
-            if (!RecognitionCtor) {
-                if (micButton) {
-                    micButton.classList.add('hidden');
-                    micButton.setAttribute('aria-hidden', 'true');
-                }
-                return;
-            }
-
-            if (!speechRecognition) {
-                speechRecognition = new RecognitionCtor();
-                speechRecognition.continuous = false;
-                speechRecognition.interimResults = false;
-                speechRecognition.lang = 'en-IN';
-
-                speechRecognition.onstart = () => setListeningState(true);
-                speechRecognition.onend = () => setListeningState(false);
-                speechRecognition.onspeechend = () => {
-                    if (isListening) {
-                        speechRecognition.stop();
-                    }
-                };
-                speechRecognition.onerror = (event) => {
-                    console.warn('Speech recognition error:', event.error || event);
-                    setListeningState(false);
-                };
-                speechRecognition.onresult = (event) => {
-                    const transcript = Array.from(event.results || [])
-                        .map(result => result?.[0]?.transcript || '')
-                        .join(' ')
-                        .trim();
-                    appendTranscriptToInput(transcript);
-                };
-            }
-
-            try {
-                speechRecognition.start();
-            } catch (error) {
-                console.warn('Speech recognition could not start:', error);
-                setListeningState(false);
-            }
-        }
-
-        function stopSpeechRecognition() {
-            if (speechRecognition && isListening) {
-                try {
-                    speechRecognition.stop();
-                } catch (error) {
-                    console.warn('Speech recognition could not stop:', error);
-                }
-            }
-            setListeningState(false);
-        }
-
-        function setListeningState(listening) {
-            isListening = listening;
-            const micButton = document.getElementById('micButton');
-            if (!micButton) return;
-
-            micButton.classList.toggle('mic-listening', listening);
-            micButton.setAttribute('aria-pressed', listening ? 'true' : 'false');
-            micButton.setAttribute('aria-label', listening ? 'Stop voice input' : 'Start voice input');
-            micButton.title = listening ? 'Listening...' : 'Start voice input';
-        }
-
-        function appendTranscriptToInput(transcript) {
-            if (!transcript) return;
-
-            const input = document.getElementById('messageInput');
-            const needsSpace = input.value && !/\s$/.test(input.value);
-            input.value = `${input.value}${needsSpace ? ' ' : ''}${transcript}`;
-            adjustTextareaHeight(input);
-            input.focus();
-        }
-
-        function canUseSpeechSynthesis() {
-            return Boolean(window.speechSynthesis && typeof window.SpeechSynthesisUtterance === 'function');
-        }
-
-        function toggleAutoRead() {
-            if (!canUseSpeechSynthesis()) return;
-
-            speechUserGestureUnlocked = true;
-            autoReadEnabled = !autoReadEnabled;
-            localStorage.setItem(AUTO_READ_STORAGE_KEY, autoReadEnabled ? 'true' : 'false');
-            updateAutoReadToggle();
-
-            if (!autoReadEnabled) {
-                stopCurrentSpeech();
-            }
-        }
-
-        function updateAutoReadToggle() {
-            const toggle = document.getElementById('autoReadToggle');
-            if (!toggle) return;
-
-            toggle.setAttribute('aria-pressed', autoReadEnabled ? 'true' : 'false');
-            toggle.setAttribute(
-                'aria-label',
-                autoReadEnabled ? 'Turn off auto-read AI answers' : 'Turn on auto-read AI answers'
-            );
-            toggle.title = autoReadEnabled ? 'Auto-read is on' : 'Auto-read is off';
-        }
-
-        function toggleMessageSpeech(messageId) {
-            speechUserGestureUnlocked = true;
-
-            if (currentSpeechMessageId === messageId) {
-                stopCurrentSpeech();
-                return;
-            }
-
-            speakAssistantMessage(messageId);
-        }
-
-        function readAssistantMessage(messageId) {
-            speechUserGestureUnlocked = true;
-            speakAssistantMessage(messageId);
-        }
-
-        function maybeAutoReadAssistantMessage(messageId) {
-            if (!autoReadEnabled || !speechUserGestureUnlocked) return;
-            speakAssistantMessage(messageId);
-        }
-
-        function speakAssistantMessage(messageId) {
-            if (!canUseSpeechSynthesis()) return;
-
-            const message = conversationHistory.find(item => item.id === messageId && item.role === 'assistant');
-            if (!message) return;
-
-            const speechText = getReadableSpeechText(message.content);
-            if (!speechText) return;
-
-            stopCurrentSpeech();
-
-            const utterance = new SpeechSynthesisUtterance(speechText);
-            utterance.lang = 'en-IN';
-            utterance.rate = 1;
-            utterance.pitch = 1;
-            currentSpeechMessageId = messageId;
-            currentSpeechUtterance = utterance;
-            updateSpeechButton(messageId, true);
-
-            utterance.onend = () => finishCurrentSpeech(messageId, utterance);
-            utterance.onerror = () => finishCurrentSpeech(messageId, utterance);
-            window.speechSynthesis.speak(utterance);
-        }
-
-        function stopCurrentSpeech() {
-            if (!canUseSpeechSynthesis()) return;
-
-            const previousMessageId = currentSpeechMessageId;
-            currentSpeechMessageId = '';
-            currentSpeechUtterance = null;
-            window.speechSynthesis.cancel();
-
-            if (previousMessageId) {
-                updateSpeechButton(previousMessageId, false);
-            }
-        }
-
-        function finishCurrentSpeech(messageId, utterance) {
-            if (currentSpeechUtterance !== utterance) return;
-
-            currentSpeechMessageId = '';
-            currentSpeechUtterance = null;
-            updateSpeechButton(messageId, false);
-        }
-
-        function updateSpeechButton(messageId, speaking) {
-            const buttons = document.querySelectorAll(`[data-speech-for="${CSS.escape(messageId)}"]`);
-            if (!buttons.length) return;
-
-            buttons.forEach((button) => {
-                const isLabeled = button.dataset.speechLabel === 'true';
-                const label = speaking ? 'Stop reading' : 'Read Aloud';
-                button.setAttribute('aria-pressed', speaking ? 'true' : 'false');
-                button.setAttribute('aria-label', speaking ? 'Stop reading response aloud' : 'Read response aloud');
-                button.innerHTML = `<i data-lucide="${speaking ? 'volume-x' : 'volume-2'}" class="w-4 h-4"></i>${isLabeled ? `<span>${label}</span>` : ''}`;
-            });
-            refreshIcons();
-        }
-
-        function getReadableSpeechText(text) {
-            return String(text || '')
-                .replace(/```[\s\S]*?```/g, ' ')
-                .replace(/`([^`]+)`/g, '$1')
-                .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-                .replace(/^#{1,6}\s+/gm, '')
-                .replace(/^[\s>*-]+/gm, '')
-                .replace(/[*_~|]+/g, '')
-                .replace(/\s+/g, ' ')
-                .trim();
-        }
-
-        function getAssistantMessage(messageId) {
-            return conversationHistory.find(item => item.id === messageId && item.role === 'assistant') || null;
-        }
-
-        async function copyAssistantMessage(messageId, button) {
-            const message = getAssistantMessage(messageId);
-            const text = message?.content || '';
-            if (!text) return;
-
-            try {
-                await writeClipboardText(text);
-                showCopyTooltip(button);
-            } catch (error) {
-                console.warn('Response could not be copied:', error);
-            }
-        }
-
-        async function writeClipboardText(text) {
-            if (navigator.clipboard?.writeText) {
-                await navigator.clipboard.writeText(text);
-                return;
-            }
-
-            const textArea = document.createElement('textarea');
-            textArea.value = text;
-            textArea.setAttribute('readonly', '');
-            textArea.style.position = 'fixed';
-            textArea.style.opacity = '0';
-            document.body.appendChild(textArea);
-            textArea.select();
-            document.execCommand('copy');
-            textArea.remove();
-        }
-
-        function showCopyTooltip(button) {
-            const tooltip = button?.querySelector('[data-copy-tooltip]');
-            if (!tooltip) return;
-
-            tooltip.classList.add('is-visible');
-            if (button.copyTooltipTimer) {
-                window.clearTimeout(button.copyTooltipTimer);
-            }
-
-            button.copyTooltipTimer = window.setTimeout(() => {
-                tooltip.classList.remove('is-visible');
-            }, 1100);
-        }
-
-        function getAssistantQuestion(messageId) {
-            const messageIndex = conversationHistory.findIndex(item => item.id === messageId && item.role === 'assistant');
-            if (messageIndex === -1) return '';
-
-            const message = conversationHistory[messageIndex];
-            if (message.question) return message.question;
-
-            for (let index = messageIndex - 1; index >= 0; index--) {
-                if (conversationHistory[index]?.role === 'user') {
-                    return conversationHistory[index].content || '';
-                }
-            }
-
-            return '';
-        }
-
-        async function regenerateAssistantMessage(messageId) {
-            if (isLoading) return;
-
-            const question = getAssistantQuestion(messageId).trim();
-            if (!question) return;
-
-            stopCurrentSpeech();
-            await sendMessage({ allowSpeech: true, message: question });
-        }
-
-        // --- Chat Logic ---
-        async function sendMessage(options = {}) {
-            if (isLoading) return;
-
-            if (options.allowSpeech) {
-                speechUserGestureUnlocked = true;
-            }
-
-            const input = document.getElementById('messageInput');
-            const hasMessageOverride = typeof options.message === 'string';
-            const message = (hasMessageOverride ? options.message : input.value).trim();
-            if (!message) return;
-
-            const chatContainer = document.getElementById('chatContainer');
-            if (!chatStarted) {
-                chatContainer.innerHTML = '';
-                chatStarted = true;
-            }
-
-            messageCount++;
-            isLoading = true;
-
-            const sendBtn = document.getElementById('sendButton');
-            sendBtn.disabled = false;
-            sendBtn.innerHTML = '<i data-lucide="square" class="w-4 h-4 fill-current text-rose-400"></i>';
-            sendBtn.title = 'Stop generating';
-            sendBtn.setAttribute('aria-label', 'Stop generating');
-            sendBtn.onclick = (e) => {
-                e.preventDefault();
-                stopGenerating();
-            };
-            activeAbortController = new AbortController();
-
-            // Add User Message
-            const userMessage = { id: createMessageId('user'), role: 'user', content: String(message) };
-            conversationHistory.push(userMessage);
-
-            // Auto-title the conversation from the first user message
-            if (activeConversation && !activeConversation.titled) {
-                activeConversation.title = store.generateTitle(message);
-                activeConversation.titled = true;
-                // Update sidebar with the new title (deferred to not block UI)
-                window.setTimeout(() => renderSidebarConversations(), 0);
-            }
-
-            saveConversationHistory();
-            renderUserMessage(userMessage);
-            refreshIcons();
-
-            if (!hasMessageOverride) {
-                input.value = '';
-                input.style.height = 'auto';
-            }
-            chatContainer.scrollTop = chatContainer.scrollHeight;
-            updateScrollToBottomButton();
-
-            const assistantId = createMessageId('assistant');
-            const assistantShell = renderAssistantShell(assistantId);
-            const streamRenderer = createStreamRenderer(assistantShell.contentEl);
-            refreshIcons();
-            chatContainer.scrollTop = chatContainer.scrollHeight;
-            updateScrollToBottomButton();
-
-            try {
-                let responsePayload;
-                if (demoMode || !apiEndpoint) {
-                    responsePayload = await runDemoStream(streamRenderer);
-                } else {
-                    responsePayload = await callGeminiAPI(message, {
-                        onSources: (sources) => {
-                            assistantShell.sourcesEl.innerHTML = renderSourceChips(sources);
-                            refreshIcons();
-                            chatContainer.scrollTop = chatContainer.scrollHeight;
-                            updateScrollToBottomButton();
-                        },
-                        onToken: (answer) => {
-                            streamRenderer(answer);
-                            chatContainer.scrollTop = chatContainer.scrollHeight;
-                            updateScrollToBottomButton();
-                        },
-                    });
-                }
-
-                const responseText = String(responsePayload.answer || '');
-                const sources = Array.isArray(responsePayload.sources) ? responsePayload.sources : [];
-                streamRenderer.flush(responseText);
-                assistantShell.sourcesEl.innerHTML = renderSourceChips(sources);
-                assistantShell.feedbackEl.innerHTML = renderFeedbackControls(assistantId);
-                conversationHistory.push({
-                    id: assistantId,
-                    role: 'assistant',
-                    content: responseText,
-                    sources,
-                    feedback: '',
-                    question: message,
-                });
-                saveConversationHistory();
-                assistantShell.actionEl.innerHTML = renderAssistantActionBar(assistantId);
-                refreshIcons();
-                maybeAutoReadAssistantMessage(assistantId);
-
-            } catch (err) {
-                if (err.name === 'AbortError') {
-                    const partialText = assistantShell.contentEl.innerText.trim();
-                    if (!partialText) {
-                        assistantShell.wrapper.remove();
-                    } else {
-                        assistantShell.contentEl.insertAdjacentHTML('beforeend', '<p class="text-xs text-zinc-500 italic mt-2">[Generation stopped]</p>');
-                    }
-                } else {
-                    const errHTML = `<div class="mt-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 px-3 py-2 rounded-xl text-xs flex items-center justify-between">
-                        <span>Error: ${escapeHtml(err.message)}</span>
-                        <button type="button" onclick="regenerateAssistantMessage('${escapeHtml(assistantId)}')" class="underline hover:text-rose-300 ml-2">Retry</button>
-                    </div>`;
-                    assistantShell.contentEl.insertAdjacentHTML('beforeend', errHTML);
-                }
-            } finally {
-                isLoading = false;
-                activeAbortController = null;
-                sendBtn.disabled = false;
-                sendBtn.innerHTML = '<i data-lucide="send" class="w-5 h-5"></i>';
-                sendBtn.title = 'Send message';
-                sendBtn.setAttribute('aria-label', 'Send message');
-                sendBtn.onclick = () => sendMessage({ allowSpeech: true });
-                refreshIcons();
-                chatContainer.scrollTop = chatContainer.scrollHeight;
-                updateScrollToBottomButton();
-            }
-        }
-
-        async function callGeminiAPI(message, handlers = {}) {
-            if (!apiEndpoint) {
-                apiEndpoint = ensureApiEndpoint();
-            }
-
-            if (!apiEndpoint) throw new Error('API endpoint not configured.');
-            const fetchSignal = activeAbortController ? activeAbortController.signal : undefined;
-            const resp = await fetch(apiEndpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: message, history: conversationHistory }),
-                signal: fetchSignal
-            });
-            if (!resp.ok) {
-                const txt = await resp.text().catch(() => null);
-                throw new Error(txt || `Request failed: ${resp.status}`);
-            }
-
-            const contentType = resp.headers.get('content-type') || '';
-            if (!contentType.includes('text/event-stream')) {
-                const data = await resp.json();
-                const answer = data?.answer || data?.response || data?.text || data?.choices?.[0]?.message?.content || JSON.stringify(data);
-                return { answer: String(answer), sources: Array.isArray(data?.sources) ? data.sources : [] };
-            }
-
-            const reader = resp.body?.getReader();
-            if (!reader) {
-                throw new Error('Streaming is not supported by this browser.');
-            }
-
-            const decoder = new TextDecoder();
-            let buffer = '';
-            let answer = '';
-            let sources = [];
-            let donePayload = null;
-
-            while (true) {
-                const { value, done } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                const events = buffer.split('\n\n');
-                buffer = events.pop() || '';
-
-                for (const eventBlock of events) {
-                    const event = parseSseEvent(eventBlock);
-                    if (!event) continue;
-
-                    if (event.event === 'sources') {
-                        sources = Array.isArray(event.data?.sources) ? event.data.sources : [];
-                        handlers.onSources?.(sources);
-                    } else if (event.event === 'token') {
-                        const token = typeof event.data?.text === 'string' ? event.data.text : '';
-                        answer += token;
-                        handlers.onToken?.(answer, token);
-                    } else if (event.event === 'done') {
-                        donePayload = event.data || {};
-                    } else if (event.event === 'error') {
-                        throw new Error(event.data?.error || 'Streaming request failed.');
-                    }
-                }
-            }
-
-            if (buffer.trim()) {
-                const event = parseSseEvent(buffer);
-                if (event?.event === 'done') {
-                    donePayload = event.data || {};
-                }
-            }
-
-            return {
-                answer: String(donePayload?.answer || answer),
-                sources: Array.isArray(donePayload?.sources) ? donePayload.sources : sources,
-            };
-        }
-
-        function parseSseEvent(block) {
-            const lines = block.split(/\r?\n/);
-            let event = 'message';
-            const dataLines = [];
-
-            for (const line of lines) {
-                if (line.startsWith('event:')) {
-                    event = line.slice(6).trim();
-                } else if (line.startsWith('data:')) {
-                    dataLines.push(line.slice(5).trimStart());
-                }
-            }
-
-            if (!dataLines.length) return null;
-
-            try {
-                return { event, data: JSON.parse(dataLines.join('\n')) };
-            } catch (error) {
-                throw new Error('Received malformed stream data.');
-            }
-        }
-
-        async function runDemoStream(render) {
-            const answer = 'I am currently in **Demo Mode**. Please configure a backend API endpoint to stream Poornima Oracle answers with citations.';
-            let rendered = '';
-            for (const token of answer.split(/(\s+)/)) {
-                rendered += token;
-                render(rendered);
-                await new Promise(resolve => window.setTimeout(resolve, 35));
-            }
-            render.flush(answer);
-            return { answer, sources: [] };
-        }
-
-        function renderWelcomeScreen() {
-            const template = document.getElementById('welcomeTemplate');
-            const welcomeScreen = template.content.cloneNode(true);
-            const suggestionGrid = welcomeScreen.querySelector('[data-suggestion-grid]');
-            suggestionGrid.innerHTML = shufflePrompts(ALL_PROMPTS).slice(0, 4).map(createSuggestionCard).join('');
-            suggestionGrid.querySelectorAll('[data-suggestion-card]').forEach((card, index) => {
-                card.style.animation = 'staggerIn 0.4s ease-out both';
-                card.style.animationDelay = `${index * 100}ms`;
-            });
-            document.getElementById('chatContainer').appendChild(welcomeScreen);
-            refreshIcons();
-        }
-
-        function shufflePrompts(prompts) {
-            const shuffled = [...prompts];
-            for (let i = shuffled.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-            }
-            return shuffled;
-        }
-
-        function createSuggestionCard(data) {
-            const colorClasses = PROMPT_COLOR_CLASSES[data.color] || PROMPT_COLOR_CLASSES.cyan;
-            const promptValue = escapeHtml(JSON.stringify(data.prompt));
-
-            return `
-                <div onclick="sendSuggestion(${promptValue})"
-                    onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();sendSuggestion(${promptValue});}"
-                    tabindex="0"
-                    role="button"
-                    aria-label="Ask ${escapeHtml(data.title)}: ${escapeHtml(data.description)}"
-                    data-suggestion-card
-                    class="glass p-4 rounded-xl cursor-pointer hover:bg-white/5 ${colorClasses.border} transition-all group active:scale-98 touch-manipulation focus:outline-none focus:ring-2 focus:ring-cyan-400">
-                    <div class="flex items-start gap-3">
-                        <div class="p-2 ${colorClasses.bg} rounded-lg ${colorClasses.text} ${colorClasses.hoverText} shrink-0">
-                            <i data-lucide="${escapeHtml(data.icon)}" class="w-5 h-5"></i>
-                        </div>
-                        <div>
-                            <h3 class="font-semibold text-zinc-200 text-sm">${escapeHtml(data.title)}</h3>
-                            <p class="text-xs text-zinc-500 mt-1">${escapeHtml(data.description)}</p>
-                        </div>
-                    </div>
-                </div>`;
-        }
-
-        function createMessageId(prefix) {
-            return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-        }
-
-        function saveConversationHistory() {
-            // Persist active conversation to IndexedDB
-            if (!activeConversation || !store) return;
-            store.saveConversation(activeConversation).catch(e => console.warn('[Oracle] Save failed:', e));
-        }
-
-        function loadConversationHistory() {
-            // History managed via ConversationStore — returns current in-memory array
-            return activeConversation ? activeConversation.messages : [];
-        }
-
-        function restoreConversation() {
-            // Async restoration handled in window.load — kept as no-op stub
-            return false;
-        }
-
-        function renderUserMessage(message) {
-            const chatContainer = document.getElementById('chatContainer');
-            const userMsgHTML = `
-                <div class="flex justify-end mb-6 animate-slide-in" data-message-id="${escapeHtml(message.id || '')}">
-                    <div class="max-w-[85%] md:max-w-[70%] bg-white text-black p-3 md:p-4 rounded-2xl rounded-br-sm shadow-lg">
-                        <p class="text-sm md:text-base leading-relaxed font-medium">${escapeHtml(message.content)}</p>
-                    </div>
-                    <div class="w-8 h-8 rounded-lg bg-white flex items-center justify-center ml-2 md:ml-3 mt-auto mb-1 shadow-md shrink-0">
-                        <i data-lucide="user" class="w-5 h-5 text-black"></i>
-                    </div>
-                </div>`;
-            chatContainer.insertAdjacentHTML('beforeend', userMsgHTML);
-        }
-
-        function renderAssistantShell(messageId) {
-            const chatContainer = document.getElementById('chatContainer');
-            const aiMsgHTML = `
-                <div class="flex justify-start mb-6 animate-slide-in" data-message-id="${escapeHtml(messageId)}">
-                    <div class="w-8 h-8 rounded-lg bg-zinc-800 border border-white/10 flex items-center justify-center mr-2 md:mr-3 mt-auto mb-1 shrink-0">
-                        <i data-lucide="bot" class="w-5 h-5 text-cyan-400"></i>
-                    </div>
-                    <div class="group max-w-[85%] md:max-w-[70%]">
-                        <div class="bg-zinc-800/80 border border-white/5 text-zinc-200 p-3 md:p-4 rounded-2xl rounded-bl-sm shadow-sm text-sm md:text-base">
-                            <div class="ai-markdown" data-ai-content role="status" aria-live="polite">
-                                <div class="flex items-center h-6"><div class="typing-shimmer h-1.5 w-24 rounded-full"></div></div>
-                            </div>
-                            <div data-source-list></div>
-                            <div data-feedback-list></div>
-                        </div>
-                        <div data-action-list></div>
-                    </div>
-                </div>`;
-            chatContainer.insertAdjacentHTML('beforeend', aiMsgHTML);
-            const wrapper = chatContainer.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`);
-            return {
-                wrapper,
-                contentEl: wrapper.querySelector('[data-ai-content]'),
-                sourcesEl: wrapper.querySelector('[data-source-list]'),
-                feedbackEl: wrapper.querySelector('[data-feedback-list]'),
-                actionEl: wrapper.querySelector('[data-action-list]'),
-            };
-        }
-
-        function renderAssistantMessage(message) {
-            const messageId = message.id || createMessageId('assistant');
-            const shell = renderAssistantShell(messageId);
-            shell.contentEl.innerHTML = renderMarkdown(message.content);
-            shell.sourcesEl.innerHTML = renderSourceChips(message.sources || []);
-            shell.feedbackEl.innerHTML = renderFeedbackControls(messageId, message.feedback);
-            shell.actionEl.innerHTML = renderAssistantActionBar(messageId);
-            refreshIcons();
-        }
-
-        function renderAssistantActionBar(messageId) {
-            const safeMessageId = escapeHtml(messageId);
-
-            return `
-                <div class="assistant-action-bar flex md:opacity-0 md:group-hover:opacity-100 transition mt-2 ml-1 items-center gap-2 text-xs text-zinc-500">
-                    <button type="button" class="relative inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 font-medium hover:bg-white/10 hover:text-white transition" aria-label="Copy response" onclick="copyAssistantMessage('${safeMessageId}', this)">
-                        <i data-lucide="copy" class="w-4 h-4"></i>
-                        <span>Copy</span>
-                        <span class="copy-tooltip" data-copy-tooltip>Copied!</span>
-                    </button>
-                    <button type="button" class="speech-button inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 font-medium hover:bg-white/10 hover:text-white transition" aria-label="Read response aloud" aria-pressed="false" data-speech-for="${safeMessageId}" data-speech-label="true" onclick="readAssistantMessage('${safeMessageId}')">
-                        <i data-lucide="volume-2" class="w-4 h-4"></i>
-                        <span>Read Aloud</span>
-                    </button>
-                    <button type="button" class="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 font-medium hover:bg-white/10 hover:text-white transition" aria-label="Regenerate response" onclick="regenerateAssistantMessage('${safeMessageId}')">
-                        <i data-lucide="refresh-cw" class="w-4 h-4"></i>
-                        <span>Regenerate</span>
-                    </button>
-                </div>`;
-        }
-
-        function createStreamRenderer(contentEl) {
-            let latestText = '';
-            let lastRenderTime = 0;
-            let renderTimeout = null;
-
-            const updateDom = (text) => {
-                contentEl.innerHTML = renderMarkdown(text);
-                lastRenderTime = Date.now();
-            };
-
-            const render = (text) => {
-                latestText = text;
-                const now = Date.now();
-                // Throttle markdown AST parsing to 100ms intervals to maintain 60fps
-                if (now - lastRenderTime > 100) {
-                    if (renderTimeout) clearTimeout(renderTimeout);
-                    updateDom(latestText);
-                } else if (!renderTimeout) {
-                    renderTimeout = setTimeout(() => {
-                        updateDom(latestText);
-                        renderTimeout = null;
-                    }, 100);
-                }
-            };
-
-            render.flush = (text) => {
-                if (renderTimeout) clearTimeout(renderTimeout);
-                latestText = text;
-                updateDom(latestText);
-            };
-
-            return render;
-        }
-
-        function renderMarkdown(text) {
-            if (!text) return '<p class="text-zinc-500 italic">No response</p>';
-
-            if (window.marked && window.DOMPurify) {
-                const rawHtml = marked.parse(String(text));
-                return DOMPurify.sanitize(rawHtml, {
-                    ADD_ATTR: ['target', 'rel'],
-                    ALLOWED_URI_REGEXP: /^(?:(?:https?|ftp|mailto):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
-                });
-            }
-
-            return escapeHtml(String(text)).replace(/\r\n/g, '\n').replace(/\n/g, '<br/>');
-        }
-
-        function renderSourceChips(sources) {
-            if (!Array.isArray(sources) || sources.length === 0) return '';
-            const chips = sources.map((src, index) => {
-                const safeTitle = escapeHtml(src.title || `Document ${index + 1}`);
-                const safeUrl = getSafeUrl(src.url);
-                const scorePercent = typeof src.score === 'number' ? Math.round(src.score * 100) : null;
-                
-                if (safeUrl) {
-                    return `
-                        <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" 
-                           class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-cyan-500/20 bg-cyan-500/5 hover:bg-cyan-500/15 text-cyan-300 text-xs transition-colors group">
-                            <i data-lucide="external-link" class="w-3 h-3 text-cyan-400 group-hover:scale-110 transition-transform shrink-0"></i>
-                            <span class="truncate max-w-[160px]">${safeTitle}</span>
-                            ${scorePercent ? `<span class="text-[10px] px-1.5 py-0.2 bg-cyan-500/20 rounded-md font-mono text-cyan-200">${scorePercent}%</span>` : ''}
-                        </a>`;
-                }
-                return `
-                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-white/10 bg-white/5 text-zinc-300 text-xs">
-                        <i data-lucide="file-text" class="w-3 h-3 text-zinc-400 shrink-0"></i>
-                        <span class="truncate max-w-[160px]">${safeTitle}</span>
-                        ${scorePercent ? `<span class="text-[10px] px-1.5 py-0.2 bg-white/10 rounded-md font-mono text-zinc-400">${scorePercent}%</span>` : ''}
-                    </span>`;
-            }).join('');
-
-            return `
-                <div class="mt-3 pt-3 border-t border-white/5 flex flex-wrap items-center gap-2">
-                    <span class="text-[11px] uppercase tracking-wider text-zinc-500 font-semibold flex items-center gap-1">
-                        <i data-lucide="check-check" class="w-3 h-3 text-cyan-400"></i> Sources:
-                    </span>
-                    ${chips}
-                </div>`;
-        }
-
-        function getSafeUrl(value) {
-            if (typeof value !== 'string' || !value.trim()) {
-                return '';
-            }
-
-            try {
-                const url = new URL(value.trim(), window.location.href);
-                return ['http:', 'https:'].includes(url.protocol) ? url.toString() : '';
-            } catch (error) {
-                return '';
-            }
-        }
-
-        function renderFeedbackControls(messageId, selectedRating = '') {
-            if (!messageId) return '';
-
-            const upPressed = selectedRating === 'up' ? 'true' : 'false';
-            const downPressed = selectedRating === 'down' ? 'true' : 'false';
-            const speechControl = canUseSpeechSynthesis()
-                ? `<button type="button" class="speech-button inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/10 hover:text-white transition" aria-label="Read response aloud" aria-pressed="false" data-speech-for="${escapeHtml(messageId)}" onclick="toggleMessageSpeech('${escapeHtml(messageId)}')">
-                        <i data-lucide="volume-2" class="w-4 h-4"></i>
-                    </button>`
-                : '';
-
-            return `
-                <div class="mt-3 flex items-center gap-2 text-zinc-500" data-feedback-for="${escapeHtml(messageId)}">
-                    ${speechControl}
-                    <button type="button" class="feedback-button inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/10 hover:text-white transition" aria-label="Helpful response" aria-pressed="${upPressed}" onclick="submitFeedback('${escapeHtml(messageId)}', 'up')">
-                        <i data-lucide="thumbs-up" class="w-4 h-4"></i>
-                    </button>
-                    <button type="button" class="feedback-button inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/10 hover:text-white transition" aria-label="Unhelpful response" aria-pressed="${downPressed}" onclick="submitFeedback('${escapeHtml(messageId)}', 'down')">
-                        <i data-lucide="thumbs-down" class="w-4 h-4"></i>
-                    </button>
-                </div>`;
-        }
-
-        async function submitFeedback(messageId, rating) {
-            const message = conversationHistory.find(item => item.id === messageId && item.role === 'assistant');
-            if (!message) return;
-
-            message.feedback = rating;
-            saveConversationHistory();
-            updateFeedbackButtons(messageId, rating);
-
-            if (demoMode) return;
-
-            try {
-                await fetch(getFeedbackEndpoint(), {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        messageId,
-                        rating,
-                        question: message.question || '',
-                        answer: message.content || '',
-                        sources: message.sources || [],
-                    }),
-                });
-            } catch (error) {
-                console.warn('Feedback could not be sent:', error);
-            }
-        }
-
-        function updateFeedbackButtons(messageId, rating) {
-            const wrapper = document.querySelector(`[data-feedback-for="${CSS.escape(messageId)}"]`);
-            if (!wrapper) return;
-
-            wrapper.querySelectorAll('.feedback-button').forEach((button) => {
-                const label = button.getAttribute('aria-label') || '';
-                const isSelected = rating === 'up' ? label.includes('Helpful') : label.includes('Unhelpful');
-                button.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
-            });
-        }
-
-        function getFeedbackEndpoint() {
-            const endpoint = apiEndpoint || ensureApiEndpoint();
-            try {
-                const url = new URL(endpoint, window.location.href);
-                if (/\/api\/chat\/?$/.test(url.pathname)) {
-                    url.pathname = url.pathname.replace(/\/api\/chat\/?$/, '/api/feedback');
-                } else {
-                    url.pathname = '/api/feedback';
-                }
-                return url.toString();
-            } catch (error) {
-                return '/api/feedback';
-            }
-        }
-
-        function escapeHtml(text) {
-            if (!text) return '';
-            const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
-            return String(text).replace(/[&<>"']/g, m => map[m]);
-        }
-
-        class ClickSpark {
-            constructor() {
-                this.canvas = document.getElementById('click-spark-canvas');
-                this.ctx = this.canvas ? this.canvas.getContext('2d') : null;
-                this.sparks = [];
-                this.sparkColor = '#fff';
-                this.sparkSize = 10;
-                this.sparkRadius = 15;
-                this.sparkCount = 8;
-                this.duration = 400;
-                this.animating = false;
-                if (this.canvas) {
-                    this.resize();
-                    this.initEvents();
-                }
-            }
-            initEvents() {
-                window.addEventListener('resize', () => this.resize());
-                window.addEventListener('click', (e) => this.addSparks(e));
-                window.addEventListener('touchstart', (e) => {
-                    const touch = e.touches[0];
-                    if (touch) {
-                        this.addSparks({ clientX: touch.clientX, clientY: touch.clientY });
-                    }
-                }, { passive: true });
-            }
-            resize() {
-                if (!this.canvas) return;
-                this.canvas.width = window.innerWidth;
-                this.canvas.height = window.innerHeight;
-            }
-            easeOut(t) { return t * (2 - t); }
-            addSparks(e) {
-                const now = performance.now();
-                for (let i = 0; i < this.sparkCount; i++) {
-                    this.sparks.push({
-                        x: e.clientX,
-                        y: e.clientY,
-                        angle: (2 * Math.PI * i) / this.sparkCount,
-                        startTime: now
-                    });
-                }
-                if (!this.animating) {
-                    this.animating = true;
-                    requestAnimationFrame((t) => this.animate(t));
-                }
-            }
-            animate(timestamp) {
-                if (!this.ctx) return;
-                if (!timestamp) timestamp = performance.now();
-                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-                this.sparks = this.sparks.filter(spark => {
-                    const elapsed = timestamp - spark.startTime;
-                    if (elapsed >= this.duration) return false;
-                    const progress = elapsed / this.duration;
-                    const eased = this.easeOut(progress);
-                    const distance = eased * this.sparkRadius;
-                    const lineLength = this.sparkSize * (1 - eased);
-                    const x1 = spark.x + distance * Math.cos(spark.angle);
-                    const y1 = spark.y + distance * Math.sin(spark.angle);
-                    const x2 = spark.x + (distance + lineLength) * Math.cos(spark.angle);
-                    const y2 = spark.y + (distance + lineLength) * Math.sin(spark.angle);
-                    this.ctx.strokeStyle = this.sparkColor;
-                    this.ctx.lineWidth = 2;
-                    this.ctx.beginPath();
-                    this.ctx.moveTo(x1, y1);
-                    this.ctx.lineTo(x2, y2);
-                    this.ctx.stroke();
-                    return true;
-                });
-                if (this.sparks.length > 0) {
-                    requestAnimationFrame((t) => this.animate(t));
-                } else {
-                    this.animating = false;
-                    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-                }
-            }
-        }
-    </script>
+    <!-- Native ES Module Application -->
+    <script type="module" src="/src/js/app.js"></script>
 </body>
 
 </html>

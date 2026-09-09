@@ -11,6 +11,8 @@ const xss = require('xss');
 const NodeCache = require('node-cache');
 const { GoogleGenAI } = require('@google/genai');
 const { Pinecone } = require('@pinecone-database/pinecone');
+const { fallbackRouter } = require('./services/fallback-router');
+const { mcpManager } = require('./services/mcp-manager');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -494,22 +496,134 @@ function writeCachedResponse(res, cachedResponse) {
     answer: cachedResponse.answer,
     sources: cachedResponse.sources,
     cached: true,
+    provider: cachedResponse.provider,
+    fallback: cachedResponse.fallback,
   });
   res.end();
 }
 
+const REFUSAL_PATTERNS = [
+  /do not have (enough |any )?information/i,
+  /don't have (enough |any )?information/i,
+  /not (present|found|available|mentioned) in the (provided )?(context|database|documents|records)/i,
+  /no information (is )?(available|provided|found) in the (provided )?context/i,
+  /cannot find (any )?information/i,
+  /could not find (any )?information/i,
+  /I (do not|don't) have access to/i,
+  /my knowledge base does not contain/i,
+  /outside the scope of the provided/i,
+  /no relevant database context was found/i,
+  /no relevant context was found/i,
+  /I cannot answer this question based on the provided/i,
+  /I am unable to answer based on the provided/i,
+  /I (do not|don't) have (any )?records/i,
+];
+
+function isRefusalResponse(text) {
+  if (!text || typeof text !== 'string') return false;
+  const trimmed = text.trim();
+  if (trimmed.length > 350) return false;
+  return REFUSAL_PATTERNS.some((pattern) => pattern.test(trimmed));
+}
+
+async function streamFallbackResponse(res, {
+  message,
+  history = [],
+  contextSnippets = '',
+  reason = 'knowledge_gap',
+  clientAbortController,
+  queryCacheKey = null,
+  initialSources = [],
+  router = fallbackRouter,
+}) {
+  if (!res.headersSent) {
+    setSseHeaders(res);
+  }
+
+  let fallbackAnswer = '';
+  try {
+    const result = await router.handleFallback({
+      message,
+      history,
+      contextSnippets,
+      reason,
+      signal: clientAbortController.signal,
+      onStatus: (statusPayload) => {
+        if (!clientAbortController.signal.aborted) {
+          writeSse(res, 'status', statusPayload);
+        }
+      },
+      onToolCall: (toolPayload) => {
+        if (!clientAbortController.signal.aborted) {
+          writeSse(res, 'tool_call', toolPayload);
+        }
+      },
+      onToolResult: (resultPayload) => {
+        if (!clientAbortController.signal.aborted) {
+          writeSse(res, 'tool_result', resultPayload);
+        }
+      },
+      onToken: (text) => {
+        if (!clientAbortController.signal.aborted) {
+          fallbackAnswer += text;
+          writeSse(res, 'token', { text });
+        }
+      },
+    });
+
+    if (clientAbortController.signal.aborted) {
+      return;
+    }
+
+    const finalAnswer = (result?.answer || fallbackAnswer).trim() ||
+      'I was unable to complete the request. Please consult https://poornima.edu.in.';
+    const sources = Array.isArray(result?.sources) && result.sources.length > 0
+      ? result.sources
+      : initialSources;
+    const provider = result?.provider || 'Fallback Cloud Agent';
+
+    if (sources.length > 0) {
+      writeSse(res, 'sources', { sources });
+    }
+
+    if (queryCacheKey && finalAnswer) {
+      queryCache.set(queryCacheKey, {
+        answer: finalAnswer,
+        sources,
+        provider,
+        fallback: true,
+      });
+    }
+
+    writeSse(res, 'done', {
+      answer: finalAnswer,
+      sources,
+      provider,
+      fallback: true,
+    });
+    res.end();
+  } catch (fallbackError) {
+    console.error('Error during fallback streaming:', fallbackError);
+    if (!res.writableEnded) {
+      writeSse(res, 'error', { error: 'Failed to process the query via fallback services.' });
+      res.end();
+    }
+  }
+}
+
+
 function buildSystemInstruction(contextSnippets) {
-  return `You are "Poornima Oracle", the official AI assistant for the Poornima Group of Colleges (PU, PCE, PIET).
+  return `You are "Poornima Oracle", the official campus AI assistant for Poornima Group of Colleges (PU, PCE, PIET) in Jaipur, created and developed by Sunny Dev (GitHub: sunnydev07).
 
-Use the provided database context to answer only Poornima-related questions accurately.
-Keep answers short, usually 2-3 sentences. Use bullet points when more detail is needed.
-If the answer is not present in the provided context, say you do not have enough information instead of guessing.
-When relevant, identify whether the user is a student, parent, or faculty member.
-When money is involved, include exact INR amounts.
-When relevant, distinguish between student awards and alumni awards, and between student leave and faculty leave.
+Guidelines:
+1. Creator & Identity: You were created and developed by Sunny Dev (GitHub: sunnydev07). Acknowledge your creator accurately when asked.
+2. Scope & Accuracy: Answer campus queries using the verified institutional context below. Differentiate between PU, PCE, and PIET.
+3. Brevity: Keep responses direct and concise (typically 2-4 sentences, or clean markdown bullets for lists). Avoid conversational filler.
+4. Precision: Quote monetary amounts in INR. Differentiate student vs. faculty rules (fees, attendance, exams, leave).
+5. Uncertainty: If context lacks required facts, state clearly what is unknown without guessing, and direct the user to campus administration or poornima.edu.in.
 
-Context:
-${contextSnippets || 'No relevant database context was found.'}`;
+Verified Context:
+${contextSnippets || 'No direct institutional database context found.'}`;
 }
 
 async function createQueryEmbedding(message) {
@@ -575,6 +689,12 @@ app.get('/api/health', (req, res) => {
     ok: true,
     configured: missingEnvVars.length === 0,
     missingEnvVars,
+    fallback: {
+      enabled: fallbackRouter.isEnabled(),
+      configured: fallbackRouter.isConfigured(),
+      providers: fallbackRouter.getAvailableProviders(),
+    },
+    mcp: mcpManager.getStatus(),
     uptimeSeconds: Math.floor(process.uptime()),
     memoryUsage: process.memoryUsage(),
     timestamp: new Date().toISOString(),
@@ -582,10 +702,31 @@ app.get('/api/health', (req, res) => {
 });
 
 app.post('/api/chat', chatRateLimiter, async (req, res) => {
-  try {
-    const message = sanitizeText(req.body?.message);
-    const history = Array.isArray(req.body?.history) ? req.body.history : [];
+  const clientAbortController = new AbortController();
+  req.on('close', () => {
+    if (!res.writableEnded) {
+      clientAbortController.abort();
+    }
+  });
 
+  const message = sanitizeText(req.body?.message);
+  const history = Array.isArray(req.body?.history) ? req.body.history : [];
+  const queryCacheKey = message ? getQueryCacheKey(message, history) : null;
+
+  const clientOpenRouterKey = req.headers['x-openrouter-key'] ? String(req.headers['x-openrouter-key']).trim() : '';
+  const clientOllamaKey = req.headers['x-ollama-key'] ? String(req.headers['x-ollama-key']).trim() : '';
+  const clientOllamaHost = req.headers['x-ollama-host'] ? String(req.headers['x-ollama-host']).trim() : '';
+  const clientFallbackHeader = req.headers['x-fallback-enabled'] ? String(req.headers['x-fallback-enabled']).trim() : '';
+  const fallbackEnabled = clientFallbackHeader ? clientFallbackHeader !== 'false' : undefined;
+
+  const currentFallbackRouter = fallbackRouter.withOverrides({
+    ...(clientOpenRouterKey ? { openrouterApiKey: clientOpenRouterKey } : {}),
+    ...(clientOllamaKey ? { ollamaApiKey: clientOllamaKey } : {}),
+    ...(clientOllamaHost ? { ollamaHost: clientOllamaHost } : {}),
+    ...(fallbackEnabled !== undefined ? { enabled: fallbackEnabled } : {}),
+  });
+
+  try {
     if (!message) {
       return res.status(400).json({ error: 'Message is required.' });
     }
@@ -596,27 +737,31 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
       });
     }
 
-    const queryCacheKey = getQueryCacheKey(message, history);
-    const cachedResponse = queryCache.get(queryCacheKey);
+    const cachedResponse = queryCacheKey ? queryCache.get(queryCacheKey) : null;
     if (cachedResponse) {
       console.log('Cache hit for query:', message.slice(0, 200));
       return writeCachedResponse(res, cachedResponse);
     }
 
     if (missingEnvVars.length > 0 || !ai || !pineconeIndex) {
+      if (currentFallbackRouter.isConfigured()) {
+        console.log('Primary RAG unconfigured or missing env vars. Escalating directly to Fallback Router.');
+        return streamFallbackResponse(res, {
+          message,
+          history,
+          contextSnippets: '',
+          reason: 'primary_unconfigured',
+          clientAbortController,
+          queryCacheKey,
+          router: currentFallbackRouter,
+        });
+      }
       return res.status(503).json({
         error: `Server is missing required environment variables: ${missingEnvVars.join(', ')}.`,
       });
     }
 
     console.log('User query:', message.slice(0, 200));
-
-    const clientAbortController = new AbortController();
-    req.on('close', () => {
-      if (!res.writableEnded) {
-        clientAbortController.abort();
-      }
-    });
 
     if (isAbusive(message)) {
       setSseHeaders(res);
@@ -627,20 +772,69 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
       return res.end();
     }
 
-    const queryVector = await createQueryEmbedding(message);
-    if (!Array.isArray(queryVector) || queryVector.length === 0) {
+    let queryVector;
+    try {
+      queryVector = await createQueryEmbedding(message);
+    } catch (embedError) {
+      console.warn('Embedding generation failed:', embedError?.message || embedError);
+      if (currentFallbackRouter.isConfigured()) {
+        console.log('Embedding generation failed. Escalating to Fallback Router.');
+        return streamFallbackResponse(res, {
+          message,
+          history,
+          contextSnippets: '',
+          reason: 'embedding_error',
+          clientAbortController,
+          queryCacheKey,
+          router: currentFallbackRouter,
+        });
+      }
       return res.status(502).json({ error: 'Failed to generate an embedding for the query.' });
     }
 
-    const pineconeQueryOptions = {
-      topK: RAG_TOP_K,
-      vector: queryVector,
-      includeMetadata: true,
-    };
-    if (pineconeNamespace) {
-      pineconeQueryOptions.namespace = pineconeNamespace;
+    if (!Array.isArray(queryVector) || queryVector.length === 0) {
+      if (currentFallbackRouter.isConfigured()) {
+        console.log('Empty embedding vector received. Escalating to Fallback Router.');
+        return streamFallbackResponse(res, {
+          message,
+          history,
+          contextSnippets: '',
+          reason: 'embedding_empty',
+          clientAbortController,
+          queryCacheKey,
+          router: currentFallbackRouter,
+        });
+      }
+      return res.status(502).json({ error: 'Failed to generate an embedding for the query.' });
     }
-    const queryResponse = await pineconeIndex.query(pineconeQueryOptions);
+
+    let queryResponse;
+    try {
+      const pineconeQueryOptions = {
+        topK: RAG_TOP_K,
+        vector: queryVector,
+        includeMetadata: true,
+      };
+      if (pineconeNamespace) {
+        pineconeQueryOptions.namespace = pineconeNamespace;
+      }
+      queryResponse = await pineconeIndex.query(pineconeQueryOptions);
+    } catch (pineconeError) {
+      console.warn('Pinecone query failed:', pineconeError?.message || pineconeError);
+      if (currentFallbackRouter.isConfigured()) {
+        console.log('Pinecone query failed. Escalating to Fallback Router.');
+        return streamFallbackResponse(res, {
+          message,
+          history,
+          contextSnippets: '',
+          reason: 'pinecone_error',
+          clientAbortController,
+          queryCacheKey,
+          router: currentFallbackRouter,
+        });
+      }
+      throw pineconeError;
+    }
 
     const matches = Array.isArray(queryResponse?.matches) ? queryResponse.matches : [];
     const relevantMatches = filterRelevantMatches(matches);
@@ -652,12 +846,50 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
       return;
     }
 
+    // Trigger Condition: Knowledge gap (no relevant matches with score >= RAG_MIN_SCORE)
+    if (relevantMatches.length === 0 && currentFallbackRouter.isConfigured()) {
+      console.log(`Knowledge gap detected: 0 matches with score >= ${RAG_MIN_SCORE}. Escalating to Fallback Router.`);
+      return streamFallbackResponse(res, {
+        message,
+        history,
+        contextSnippets: '',
+        reason: 'knowledge_gap',
+        clientAbortController,
+        queryCacheKey,
+        initialSources: sources,
+        router: currentFallbackRouter,
+      });
+    }
+
     setSseHeaders(res);
     writeSse(res, 'sources', { sources });
 
-    const stream = await startAnswerStream(message, historyContext, contextSnippets, clientAbortController.signal);
+    let stream;
+    try {
+      stream = await startAnswerStream(message, historyContext, contextSnippets, clientAbortController.signal);
+    } catch (geminiError) {
+      console.warn('Primary Gemini stream start failed:', geminiError?.message || geminiError);
+      if (currentFallbackRouter.isConfigured()) {
+        console.log('Gemini start failed. Escalating to Fallback Router.');
+        return streamFallbackResponse(res, {
+          message,
+          history,
+          contextSnippets,
+          reason: isTransientError(geminiError) ? 'gemini_quota' : 'gemini_error',
+          clientAbortController,
+          queryCacheKey,
+          initialSources: sources,
+          router: currentFallbackRouter,
+        });
+      }
+      throw geminiError;
+    }
 
     let answer = '';
+    let refusalBuffer = '';
+    let refusalChecked = false;
+    const REFUSAL_BUFFER_MAX = 220;
+
     for await (const chunk of stream) {
       if (clientAbortController.signal.aborted) {
         break;
@@ -669,11 +901,56 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
       }
 
       answer += text;
-      writeSse(res, 'token', { text });
+
+      // Check if primary response starts with a refusal phrase
+      if (!refusalChecked && currentFallbackRouter.isConfigured()) {
+        refusalBuffer += text;
+        if (refusalBuffer.length < REFUSAL_BUFFER_MAX) {
+          continue;
+        }
+
+        if (isRefusalResponse(refusalBuffer)) {
+          console.log('Gemini output indicates refusal / lack of information. Escalating to Fallback Router.');
+          refusalChecked = true;
+          return streamFallbackResponse(res, {
+            message,
+            history,
+            contextSnippets,
+            reason: 'refusal',
+            clientAbortController,
+            queryCacheKey,
+            initialSources: sources,
+            router: currentFallbackRouter,
+          });
+        }
+
+        refusalChecked = true;
+        writeSse(res, 'token', { text: refusalBuffer });
+      } else {
+        writeSse(res, 'token', { text });
+      }
     }
 
     if (clientAbortController.signal.aborted) {
       return;
+    }
+
+    // Check refusal on short responses (< REFUSAL_BUFFER_MAX)
+    if (!refusalChecked && refusalBuffer) {
+      if (currentFallbackRouter.isConfigured() && isRefusalResponse(refusalBuffer)) {
+        console.log('Short refusal response detected from Gemini. Escalating to Fallback Router.');
+        return streamFallbackResponse(res, {
+          message,
+          history,
+          contextSnippets,
+          reason: 'refusal',
+          clientAbortController,
+          queryCacheKey,
+          initialSources: sources,
+          router: currentFallbackRouter,
+        });
+      }
+      writeSse(res, 'token', { text: refusalBuffer });
     }
 
     answer = answer.trim() || 'I could not generate a response. Please try again.';
@@ -681,6 +958,19 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
     writeSse(res, 'done', { answer, sources });
     res.end();
   } catch (error) {
+    if (!res.headersSent && currentFallbackRouter.isConfigured()) {
+      console.warn('Recovering from error in /api/chat via Fallback Router:', error?.message || error);
+      return streamFallbackResponse(res, {
+        message,
+        history,
+        contextSnippets: '',
+        reason: 'chat_error',
+        clientAbortController,
+        queryCacheKey,
+        router: currentFallbackRouter,
+      });
+    }
+
     const apiKeyError = detectApiKeyError(error);
     if (apiKeyError.isApiKeyError) {
       logApiKeyError(apiKeyError.service, apiKeyError.reason, error);
@@ -733,8 +1023,9 @@ app.post('/api/feedback', feedbackRateLimiter, (req, res) => {
   res.json({ ok: true });
 });
 
-function gracefulShutdown(signal) {
+async function gracefulShutdown(signal) {
   console.log(`Received ${signal}. Closing HTTP server gracefully...`);
+  await mcpManager.closeAll().catch(() => {});
   server.close(() => {
     console.log('HTTP server closed. Exiting process.');
     process.exit(0);
@@ -751,6 +1042,22 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 const server = app.listen(PORT, () => {
   validateApiKeysAtStartup();
   console.log(`Poornima Instructor server running on http://localhost:${PORT}`);
+
+  if (fallbackRouter.isConfigured()) {
+    console.log(`[FallbackRouter] Dual Cloud Core Active: ${fallbackRouter.getAvailableProviders().join(' | ')}`);
+  } else {
+    console.log('[FallbackRouter] Idle (No fallback keys configured in environment)');
+  }
+
+  mcpManager.initialize().then((status) => {
+    if (status.activeServersCount > 0) {
+      console.log(`[McpManager] Active MCP servers: ${status.activeServersCount}, Total MCP tools: ${status.totalToolsCount}`);
+    } else {
+      console.log('[McpManager] Ready (0 active external servers in mcp-servers.json)');
+    }
+  }).catch((err) => {
+    console.warn('[McpManager] Initialization warning:', err.message);
+  });
 
   if (missingEnvVars.length > 0) {
     console.warn(`Missing environment variables: ${missingEnvVars.join(', ')}`);
