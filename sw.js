@@ -1,9 +1,9 @@
 /**
- * Poornima Oracle - Service Worker
- * Provides offline caching, app-shell reliability, and instant repeat load times.
+ * Poornima Oracle - Service Worker (v2)
+ * Provides offline caching, app-shell reliability, and instant load times.
  */
 
-const CACHE_NAME = 'poornima-oracle-v1';
+const CACHE_NAME = 'poornima-oracle-v2';
 
 const PRECACHE_ASSETS = [
     '/',
@@ -13,6 +13,9 @@ const PRECACHE_ASSETS = [
     '/src/assets/icon.svg',
     '/src/assets/icon-192.png',
     '/src/assets/icon-512.png',
+    '/src/vendor/lucide.min.js',
+    '/src/vendor/marked.min.js',
+    '/src/vendor/purify.min.js',
     '/src/js/app.js',
     '/src/js/config.js',
     '/src/js/state.js',
@@ -27,40 +30,23 @@ const PRECACHE_ASSETS = [
     '/src/js/components/sparkCanvas.js',
     '/src/js/components/toolTray.js',
     '/src/js/components/welcomeScreen.js',
-    '/src/js/pwa/installPrompt.js',
     '/src/js/profile/profileStore.js',
+    '/src/js/pwa/installPrompt.js',
     '/src/js/storage/conversationStore.js',
     '/src/js/utils/dom.js',
     '/src/js/utils/markdown.js'
 ];
 
-// Third-party CDN URLs to cache for offline usage
-const CDN_PRECACHE = [
-    'https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js',
-    'https://unpkg.com/marked@16.2.1/lib/marked.umd.js',
-    'https://unpkg.com/dompurify@3.2.3/dist/purify.min.js',
-    'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap'
-];
-
-// Install: precache app shell and static dependencies
+// Install: precache app shell and static local dependencies
 self.addEventListener('install', (event) => {
     event.waitUntil(
         caches.open(CACHE_NAME).then(async (cache) => {
             console.log('[ServiceWorker] Precaching app shell assets...');
-            // Precache local assets individually to avoid complete failure if one 404s
             for (const asset of PRECACHE_ASSETS) {
                 try {
                     await cache.add(asset);
                 } catch (err) {
                     console.warn(`[ServiceWorker] Could not precache ${asset}:`, err);
-                }
-            }
-            // Precache CDN scripts
-            for (const cdnUrl of CDN_PRECACHE) {
-                try {
-                    await cache.add(cdnUrl);
-                } catch (err) {
-                    console.warn(`[ServiceWorker] Could not precache CDN asset ${cdnUrl}:`, err);
                 }
             }
         }).then(() => self.skipWaiting())
@@ -74,7 +60,7 @@ self.addEventListener('activate', (event) => {
             return Promise.all(
                 keys.map((key) => {
                     if (key !== CACHE_NAME) {
-                        console.log('[ServiceWorker] Removing legacy cache:', key);
+                        console.log('[ServiceWorker] Purging legacy cache:', key);
                         return caches.delete(key);
                     }
                 })
@@ -83,7 +69,7 @@ self.addEventListener('activate', (event) => {
     );
 });
 
-// Fetch: serve cached shell, stale-while-revalidate for assets, strictly network-only for /api/*
+// Fetch: serve cached shell, stale-while-revalidate for local assets, network-only for /api/* and cross-origin
 self.addEventListener('fetch', (event) => {
     const { request } = event;
     const url = new URL(request.url);
@@ -98,8 +84,14 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // Ignore unsupported browser schemes (e.g. chrome-extension://)
+    // Ignore unsupported schemes
     if (!url.protocol.startsWith('http')) {
+        return;
+    }
+
+    // Never intercept cross-origin requests (e.g. Google Fonts or external CDNs)
+    // Let the browser handle cross-origin caching natively
+    if (url.origin !== self.location.origin) {
         return;
     }
 
@@ -128,7 +120,7 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // Static assets (scripts, styles, icons, fonts): Stale-While-Revalidate
+    // Local static assets (scripts, styles, icons): Stale-While-Revalidate
     event.respondWith(
         caches.match(request).then((cachedResponse) => {
             const fetchPromise = fetch(request)
@@ -139,10 +131,7 @@ self.addEventListener('fetch', (event) => {
                     }
                     return networkResponse;
                 })
-                .catch((err) => {
-                    // Network failed - return cached version or log
-                    return cachedResponse;
-                });
+                .catch(() => cachedResponse);
 
             return cachedResponse || fetchPromise;
         })

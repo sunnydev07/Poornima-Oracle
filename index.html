@@ -20,12 +20,27 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/src/assets/icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="/src/assets/icon-512.png">
 
-    <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+    <!-- Lucide Icons (Local first for 100% offline & fast reliability, CDN fallback) -->
+    <script src="/src/vendor/lucide.min.js"></script>
+    <script>
+        if (typeof window.lucide === 'undefined') {
+            document.write('<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"><\/script>');
+        }
+    </script>
 
     <!-- Markdown parsing and sanitization -->
-    <script src="https://unpkg.com/marked@16.2.1/lib/marked.umd.js"></script>
-    <script src="https://unpkg.com/dompurify@3.2.3/dist/purify.min.js"></script>
+    <script src="/src/vendor/marked.min.js"></script>
+    <script>
+        if (typeof window.marked === 'undefined') {
+            document.write('<script src="https://unpkg.com/marked@16.2.1/lib/marked.umd.js"><\/script>');
+        }
+    </script>
+    <script src="/src/vendor/purify.min.js"></script>
+    <script>
+        if (typeof window.DOMPurify === 'undefined') {
+            document.write('<script src="https://unpkg.com/dompurify@3.2.3/dist/purify.min.js"><\/script>');
+        }
+    </script>
 
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">

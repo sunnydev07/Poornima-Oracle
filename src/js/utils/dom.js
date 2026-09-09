@@ -4,7 +4,11 @@
 
 export function refreshIcons() {
     if (typeof window !== 'undefined' && window.lucide?.createIcons) {
-        window.lucide.createIcons();
+        try {
+            window.lucide.createIcons();
+        } catch (err) {
+            console.warn('[Oracle] Lucide createIcons error:', err);
+        }
     }
 }
 
