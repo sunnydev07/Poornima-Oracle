@@ -26,6 +26,7 @@ const crypto = require('crypto');
 const cheerio = require('cheerio');
 const { GoogleGenAI } = require('@google/genai');
 const { Pinecone } = require('@pinecone-database/pinecone');
+const { enrichNoticesWithPdfContent } = require('./pdf-extractor');
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -42,6 +43,9 @@ const EMBED_TIMEOUT_MS = 20_000;
 const MAX_NOTICES_PER_SOURCE = 30;
 const EMBED_BATCH_SIZE = 10;
 const EMBED_DELAY_MS = 300; // Rate-limit courtesy delay between embedding batches
+const ENABLE_PDF_EXTRACTION = process.env.ENABLE_PDF_EXTRACTION !== 'false'; // Default: true
+const PDF_CONCURRENCY = Number.parseInt(process.env.PDF_CONCURRENCY || '2', 10);
+const MAX_CHUNKS_PER_NOTICE = 25; // Limit chunks per notice to avoid vector flooding
 
 /**
  * Firestore REST API endpoints for Poornima University (Angular CSR).
@@ -202,15 +206,16 @@ function chunkText(text, maxChars = CHUNK_MAX_CHARS, overlap = CHUNK_OVERLAP_CHA
 
     // Try to break at sentence or word boundary
     if (end < text.length) {
+      const minBreak = start + Math.max(overlap + 10, Math.floor(maxChars * 0.5));
       const lastSentenceBreak = text.lastIndexOf('. ', end);
       const lastNewline = text.lastIndexOf('\n', end);
       const lastSpace = text.lastIndexOf(' ', end);
 
-      if (lastSentenceBreak > start + maxChars * 0.5) {
+      if (lastSentenceBreak >= minBreak) {
         end = lastSentenceBreak + 1;
-      } else if (lastNewline > start + maxChars * 0.5) {
+      } else if (lastNewline >= minBreak) {
         end = lastNewline;
-      } else if (lastSpace > start + maxChars * 0.5) {
+      } else if (lastSpace >= minBreak) {
         end = lastSpace;
       }
     }
@@ -220,8 +225,10 @@ function chunkText(text, maxChars = CHUNK_MAX_CHARS, overlap = CHUNK_OVERLAP_CHA
       chunks.push(chunk);
     }
 
-    start = end - overlap;
-    if (start >= text.length) break;
+    if (end >= text.length) break;
+
+    const nextStart = Math.max(start + 1, end - overlap);
+    start = nextStart <= start ? end : nextStart;
   }
 
   return chunks;
@@ -673,18 +680,39 @@ async function syncNotices(options = {}) {
     return { success: true, noticesFound: 0, chunksProcessed: 0, vectorsUpserted: 0, errors };
   }
 
+  // --- Step 1.5: Enrich with PDF Circular Content ---
+  if (ENABLE_PDF_EXTRACTION) {
+    try {
+      rawNotices = await enrichNoticesWithPdfContent(rawNotices, {
+        concurrency: PDF_CONCURRENCY,
+        delayMs: 200,
+      });
+    } catch (pdfErr) {
+      console.warn(`[NoticeCrawler] PDF enrichment warning: ${pdfErr.message}`);
+    }
+  }
+
   // --- Step 2: Deduplicate & Chunk ---
   const chunks = [];
 
   for (const notice of rawNotices) {
-    const hash = contentHash(notice.title + notice.url);
+    const hash = contentHash(notice.title + notice.url + (notice.pdfText ? contentHash(notice.pdfText) : ''));
     if (processedHashes.has(hash)) {
       continue;
     }
     processedHashes.add(hash);
 
-    const fullText = `${notice.title}. ${notice.text || ''}`.trim();
-    const textChunks = chunkText(fullText);
+    let fullText;
+    if (notice.pdfExtracted && notice.pdfText) {
+      fullText = `Notice: ${notice.title} (${notice.college}). Category: ${notice.category}. Published: ${notice.publishedAt || 'Recent'}.\n\nCircular Details:\n${notice.pdfText}`.trim();
+    } else {
+      fullText = `${notice.title}. ${notice.text || ''}`.trim();
+    }
+
+    let textChunks = chunkText(fullText);
+    if (textChunks.length > MAX_CHUNKS_PER_NOTICE) {
+      textChunks = textChunks.slice(0, MAX_CHUNKS_PER_NOTICE);
+    }
 
     for (let chunkIdx = 0; chunkIdx < textChunks.length; chunkIdx++) {
       const chunkId = `notice-${notice.college.toLowerCase()}-${slugify(notice.title)}-c${chunkIdx}`;
@@ -702,13 +730,15 @@ async function syncNotices(options = {}) {
           source: notice.url,
           chunkIndex: chunkIdx,
           totalChunks: textChunks.length,
+          hasPdfContent: Boolean(notice.pdfExtracted),
           ingestedAt: new Date().toISOString(),
         },
       });
     }
   }
 
-  console.log(`[NoticeCrawler] Deduplicated: ${rawNotices.length} notices → ${chunks.length} chunks`);
+  const pdfEnrichedCount = rawNotices.filter((n) => n.pdfExtracted).length;
+  console.log(`[NoticeCrawler] Deduplicated: ${rawNotices.length} notices (${pdfEnrichedCount} with full PDF circular text) → ${chunks.length} chunks`);
 
   if (chunks.length === 0) {
     console.log('[NoticeCrawler] All notices were previously processed. Nothing new to ingest.');
@@ -742,6 +772,18 @@ async function syncNotices(options = {}) {
   console.log(`[NoticeCrawler] Valid vectors: ${vectors.length}/${chunks.length}`);
 
   if (vectors.length === 0) {
+    if (options.dryRun) {
+      console.log(`[NoticeCrawler] DRY RUN: Generated ${chunks.length} chunks from ${rawNotices.length} notices (${pdfEnrichedCount} circular PDFs enriched with text).`);
+      return {
+        success: true,
+        noticesFound: rawNotices.length,
+        pdfNoticesEnriched: pdfEnrichedCount,
+        chunksProcessed: chunks.length,
+        vectorsUpserted: 0,
+        errors,
+        dryRun: true,
+      };
+    }
     return { success: false, noticesFound: rawNotices.length, chunksProcessed: chunks.length, vectorsUpserted: 0, errors };
   }
 
@@ -762,17 +804,19 @@ async function syncNotices(options = {}) {
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log('='.repeat(60));
   console.log(`[NoticeCrawler] Sync complete in ${elapsed}s`);
-  console.log(`  Notices found:    ${rawNotices.length}`);
-  console.log(`  Chunks processed: ${chunks.length}`);
-  console.log(`  Vectors upserted: ${upsertResult.upsertedCount}`);
+  console.log(`  Notices found:      ${rawNotices.length}`);
+  console.log(`  PDFs enriched:      ${pdfEnrichedCount}`);
+  console.log(`  Chunks processed:   ${chunks.length}`);
+  console.log(`  Vectors upserted:   ${upsertResult.upsertedCount}`);
   if (errors.length > 0) {
-    console.log(`  Warnings:         ${errors.length}`);
+    console.log(`  Warnings:           ${errors.length}`);
   }
   console.log('='.repeat(60) + '\n');
 
   return {
     success: true,
     noticesFound: rawNotices.length,
+    pdfNoticesEnriched: pdfEnrichedCount,
     chunksProcessed: chunks.length,
     vectorsUpserted: upsertResult.upsertedCount,
     errors,
@@ -808,5 +852,6 @@ module.exports = {
   chunkText,
   contentHash,
   categorize,
+  enrichNoticesWithPdfContent,
   NOTICES_NAMESPACE,
 };

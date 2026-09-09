@@ -61,6 +61,11 @@ import { submitFeedback, renderFeedbackControls } from './api/feedback.js';
 import { callGeminiAPI, runDemoStream } from './api/sseClient.js';
 import { initPwa, triggerInstallPrompt } from './pwa/installPrompt.js';
 import { updateProfileUI, openProfileModal } from './profile/profileStore.js';
+import {
+    exportActiveConversation,
+    handleExportConversation,
+    handleExportMenuChoice,
+} from './utils/chatExport.js';
 
 export function stopGenerating() {
     if (state.activeAbortController) {
@@ -351,6 +356,9 @@ window.toggleSidebarDesktop = toggleSidebarDesktop;
 window.startNewChat = startNewChat;
 window.handleSwitchConversation = handleSwitchConversation;
 window.handleDeleteConversation = handleDeleteConversation;
+window.exportActiveConversation = exportActiveConversation;
+window.handleExportConversation = handleExportConversation;
+window.handleExportMenuChoice = handleExportMenuChoice;
 window.triggerInstallPrompt = triggerInstallPrompt;
 window.openProfileModal = openProfileModal;
 

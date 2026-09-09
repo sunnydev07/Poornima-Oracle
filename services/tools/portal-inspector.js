@@ -136,6 +136,10 @@ async function executePortalInspector({ section = 'all' }, options = {}) {
         id: `portal-notice-${i + 1}`,
         title: item.title,
         url: item.url,
+        // Tier 1 #2: live-scraped notices are fresh by definition — stamp
+        // today so the chat UI can show the "New" freshness badge.
+        publishedAt: new Date().toISOString().split('T')[0],
+        college: item.portal || '',
       })),
     };
   } catch (err) {

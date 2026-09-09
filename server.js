@@ -15,6 +15,7 @@ const { fallbackRouter } = require('./services/fallback-router');
 const { mcpManager } = require('./services/mcp-manager');
 const cron = require('node-cron');
 const { syncNotices, NOTICES_NAMESPACE } = require('./services/crawler/notice-sync');
+const { getUpcomingCalendarEvents, getCalendarContextForPrompt } = require('./services/calendar-service');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -444,8 +445,22 @@ function buildSources(matches) {
       const url = rawUrl || (looksLikeUrl(sourceValue) ? sourceValue : '');
       const title = rawTitle && !looksLikeUrl(rawTitle) ? rawTitle : id;
       const score = typeof match?.score === 'number' ? Number(match.score.toFixed(4)) : null;
+      // Tier 1 #2: pass notice freshness metadata through so the chat UI
+      // can render "Live Notice" + "New" badges for portal-notice-* sources.
+      const publishedAt = getFirstMetadataValue(metadata, [
+        'publishedAt',
+        'published_at',
+        'date',
+        'ingestedAt',
+      ]);
+      const college = getFirstMetadataValue(metadata, ['college']);
+      const category = getFirstMetadataValue(metadata, ['category']);
 
-      return { id, title, url, score };
+      const source = { id, title, url, score };
+      if (publishedAt) source.publishedAt = publishedAt;
+      if (college) source.college = college;
+      if (category) source.category = category;
+      return source;
     })
     .filter((source) => source.title || source.url)
     .slice(0, 3);
@@ -746,6 +761,34 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+app.get('/api/calendar', async (req, res) => {
+  try {
+    const campus = (req.query.campus || req.query.college || 'ALL').toUpperCase();
+    const category = (req.query.category || 'all').toLowerCase();
+    const daysAhead = parsePositiveInteger(req.query.daysAhead, 90);
+    const limit = parseBoundedInteger(req.query.limit, 25, 1, 100);
+
+    const data = await getUpcomingCalendarEvents({
+      campus,
+      category,
+      daysAhead,
+      limit,
+    });
+
+    res.json({
+      ok: true,
+      ...data,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('Error fetching calendar events in /api/calendar:', err);
+    res.status(500).json({
+      ok: false,
+      error: 'Failed to retrieve academic calendar events',
+    });
+  }
+});
+
 app.post('/api/chat', chatRateLimiter, async (req, res) => {
   const clientAbortController = new AbortController();
   req.on('close', () => {
@@ -930,12 +973,35 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
     const historyContext = buildHistoryContext(history, message);
     const sources = buildSources(relevantMatches);
 
+    // Tier 2 #6: Grounding with official Academic Calendar & Exam Schedule
+    let calendarContext = '';
+    try {
+      calendarContext = await getCalendarContextForPrompt(message, profile?.college || 'ALL');
+    } catch (calErr) {
+      console.warn('Calendar context lookup failed:', calErr?.message || calErr);
+    }
+
+    const combinedSnippets = calendarContext
+      ? (contextSnippets ? `${calendarContext}\n\n${contextSnippets}` : calendarContext)
+      : contextSnippets;
+
+    if (calendarContext) {
+      sources.unshift({
+        id: 'live-academic-calendar',
+        title: 'Poornima Academic Calendar (Live Feed)',
+        url: 'https://calendar.google.com',
+        score: 0.95,
+        category: 'Academic Calendar',
+        college: profile?.college || 'ALL',
+      });
+    }
+
     if (clientAbortController.signal.aborted) {
       return;
     }
 
-    // Trigger Condition: Knowledge gap (no relevant matches with score >= RAG_MIN_SCORE)
-    if (relevantMatches.length === 0 && currentFallbackRouter.isConfigured()) {
+    // Trigger Condition: Knowledge gap (no relevant matches with score >= RAG_MIN_SCORE AND no calendar context)
+    if (relevantMatches.length === 0 && !calendarContext && currentFallbackRouter.isConfigured()) {
       console.log(`Knowledge gap detected: 0 matches with score >= ${RAG_MIN_SCORE}. Escalating to Fallback Router.`);
       return streamFallbackResponse(res, {
         message,
@@ -955,7 +1021,7 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
 
     let stream;
     try {
-      stream = await startAnswerStream(message, historyContext, contextSnippets, profile, clientAbortController.signal);
+      stream = await startAnswerStream(message, historyContext, combinedSnippets, profile, clientAbortController.signal);
     } catch (geminiError) {
       console.warn('Primary Gemini stream start failed:', geminiError?.message || geminiError);
       if (currentFallbackRouter.isConfigured()) {
@@ -963,7 +1029,7 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
         return streamFallbackResponse(res, {
           message,
           history,
-          contextSnippets,
+          contextSnippets: combinedSnippets,
           profile,
           reason: isTransientError(geminiError) ? 'gemini_quota' : 'gemini_error',
           clientAbortController,
@@ -1005,7 +1071,7 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
           return streamFallbackResponse(res, {
             message,
             history,
-            contextSnippets,
+            contextSnippets: combinedSnippets,
             profile,
             reason: 'refusal',
             clientAbortController,

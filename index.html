@@ -936,6 +936,12 @@
                         <i data-lucide="download" class="w-4 h-4"></i>
                         <span class="hidden sm:inline">Install</span>
                     </button>
+                    <button id="exportChatButton" onclick="exportActiveConversation(this)" aria-label="Export conversation"
+                        title="Export conversation (Markdown / PDF)"
+                        class="border border-white/10 bg-white/[0.03] px-3 py-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition flex items-center gap-2 active:scale-95 text-xs font-medium whitespace-nowrap">
+                        <i data-lucide="download" class="w-4 h-4"></i>
+                        <span class="hidden sm:inline">Export</span>
+                    </button>
                     <button id="autoReadToggle" onclick="toggleAutoRead()" aria-label="Toggle auto-read AI answers"
                         aria-pressed="false"
                         class="auto-read-toggle border border-white/10 bg-white/[0.03] px-3 py-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition flex items-center gap-2 active:scale-95 text-xs font-medium whitespace-nowrap">
@@ -1013,9 +1019,11 @@
            <p class="text-zinc-400 text-center  md:mb-3 max-w-lg text-base md:text-lg font-light px-4">
                 You've officially come to the right place. Ask me anything about campus life.
             </p>
-            <p class="text-cyan-400 text-center md:mb-12 max-w-lg text-base md:text-xs font-light px-4">
+            <p class="text-cyan-400 text-center mb-6 max-w-lg text-base md:text-xs font-light px-4">
                 Use Demo Mode if you want to try the UI without a backend endpoint.
             </p>
+            <!-- Exam Countdown & Academic Calendar Widget Container (Tier 2 #6) -->
+            <div id="upcomingCalendarWidget" class="w-full max-w-3xl px-4 mb-4"></div>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 w-full max-w-3xl px-4"
                 data-suggestion-grid>
             </div>

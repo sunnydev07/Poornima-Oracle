@@ -3,6 +3,7 @@
  */
 import { ALL_PROMPTS, PROMPT_COLOR_CLASSES } from '../config.js';
 import { escapeHtml, refreshIcons, adjustTextareaHeight } from '../utils/dom.js';
+import { initCalendarWidget } from './calendarWidget.js';
 
 export function shufflePrompts(prompts) {
     const shuffled = [...prompts];
@@ -55,6 +56,7 @@ export function renderWelcomeScreen() {
     }
     chatContainer.appendChild(welcomeScreen);
     refreshIcons();
+    initCalendarWidget();
 }
 
 export function sendSuggestion(text) {

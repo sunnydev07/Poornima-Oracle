@@ -83,6 +83,12 @@ export async function renderSidebarConversations() {
                 class="sidebar-icon w-4 h-4 ${isActive ? 'text-cyan-400' : 'text-zinc-600 group-hover:text-zinc-400'} shrink-0 transition-colors"></i>
             <span class="sidebar-text text-xs truncate flex-1 ${isActive ? 'font-medium text-white' : 'font-light'}">${escapeHtml(conv.title || 'New Chat')}</span>
             <button class="sidebar-text opacity-0 group-hover:opacity-100 p-1 rounded-lg
+                           text-zinc-600 hover:text-cyan-400 hover:bg-cyan-500/10 transition-all shrink-0"
+                    title="Export conversation (Markdown / PDF)"
+                    onclick="event.stopPropagation(); handleExportConversation('${safeId}', this)">
+                <i data-lucide="download" class="w-3 h-3"></i>
+            </button>
+            <button class="sidebar-text opacity-0 group-hover:opacity-100 p-1 rounded-lg
                            text-zinc-600 hover:text-rose-400 hover:bg-rose-500/10 transition-all shrink-0"
                     title="Delete conversation"
                     onclick="event.stopPropagation(); handleDeleteConversation('${safeId}')">

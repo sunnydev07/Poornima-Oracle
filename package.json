@@ -12,8 +12,10 @@
     "dev": "node server.js",
     "start": "node server.js",
     "start:prod": "pm2 start server.js --name poornima-oracle",
-    "check": "node --check server.js && node --check sw.js && node --check services/fallback-router.js && node --check services/tool-dispatcher.js && node --check services/mcp-manager.js && node --check services/tools/web-search.js && node --check services/tools/web-scraper.js && node --check services/tools/portal-inspector.js && node --check services/tools/datetime-calculator.js && node --check services/crawler/notice-sync.js && node --check src/js/config.js && node --check src/js/state.js && node --check src/js/profile/profileStore.js && node --check src/js/pwa/installPrompt.js && node --check src/js/app.js",
+    "check": "node --check server.js && node --check sw.js && node --check services/fallback-router.js && node --check services/tool-dispatcher.js && node --check services/mcp-manager.js && node --check services/tools/web-search.js && node --check services/tools/web-scraper.js && node --check services/tools/portal-inspector.js && node --check services/tools/datetime-calculator.js && node --check services/crawler/pdf-extractor.js && node --check services/crawler/notice-sync.js && node --check services/calendar-service.js && node --check src/js/config.js && node --check src/js/state.js && node --check src/js/utils/chatExport.js && node --check src/js/profile/profileStore.js && node --check src/js/components/calendarWidget.js && node --check src/js/pwa/installPrompt.js && node --check src/js/app.js",
     "test:pinecone": "node test-pinecone.js",
+    "test:pdf": "node test-pdf-extractor.js",
+    "test:calendar": "node test-calendar-service.js",
     "sync:notices": "node services/crawler/notice-sync.js",
     "sync:notices:dry": "node services/crawler/notice-sync.js --dry-run"
   },
@@ -30,6 +32,7 @@
     "helmet": "^8.2.0",
     "node-cache": "^5.1.2",
     "node-cron": "^4.6.0",
+    "pdf-parse": "^2.4.5",
     "pm2": "^7.0.1",
     "xss": "^1.0.15"
   },
