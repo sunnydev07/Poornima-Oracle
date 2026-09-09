@@ -6,6 +6,7 @@ import { state } from '../state.js';
 import { getDefaultApiEndpoint, DEMO_MODE_STORAGE_KEY, GEMINI_ENDPOINT_STORAGE_KEY, FALLBACK_STORAGE_KEYS } from '../config.js';
 import { refreshIcons } from '../utils/dom.js';
 import { updateInstallUI } from '../pwa/installPrompt.js';
+import { saveStudentProfile, updateProfileUI } from '../profile/profileStore.js';
 
 export function showApiModal() {
     const endpointInput = document.getElementById('apiEndpoint');
@@ -35,6 +36,7 @@ export function showApiModal() {
 
     toggleFallbackConfigVisibility();
     updateInstallUI();
+    updateProfileUI();
     const modal = document.getElementById('apiModal');
     if (modal) modal.classList.remove('hidden');
     refreshIcons();
@@ -99,6 +101,23 @@ export function saveApiEndpoint() {
     const olKeyInput = document.getElementById('ollamaApiKey');
     if (olKeyInput) {
         localStorage.setItem(FALLBACK_STORAGE_KEYS.OLLAMA_KEY, olKeyInput.value.trim());
+    }
+
+    // Save Student Personalization Profile
+    const collegeSelect = document.getElementById('profileCollege');
+    const statusSelect = document.getElementById('profileStatus');
+    const yearSelect = document.getElementById('profileYear');
+    const courseSelect = document.getElementById('profileCourse');
+    const branchInput = document.getElementById('profileBranch');
+
+    if (collegeSelect && statusSelect) {
+        saveStudentProfile({
+            college: collegeSelect.value,
+            status: statusSelect.value,
+            year: yearSelect ? yearSelect.value : '1st',
+            course: courseSelect ? courseSelect.value : 'B.Tech',
+            branch: branchInput ? branchInput.value.trim() : '',
+        });
     }
 
     closeApiModal();

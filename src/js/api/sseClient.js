@@ -4,6 +4,7 @@
  */
 import { state } from '../state.js';
 import { ensureApiEndpoint, FALLBACK_STORAGE_KEYS } from '../config.js';
+import { getStudentProfile } from '../profile/profileStore.js';
 
 export function parseSseEvent(block) {
     const lines = block.split(/\r?\n/);
@@ -63,7 +64,11 @@ export async function callGeminiAPI(message, handlers = {}) {
     const resp = await fetch(state.apiEndpoint, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ message: message, history: state.conversationHistory }),
+        body: JSON.stringify({
+            message: message,
+            history: state.conversationHistory,
+            profile: getStudentProfile(),
+        }),
         signal: fetchSignal,
     });
 

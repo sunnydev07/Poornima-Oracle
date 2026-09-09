@@ -60,6 +60,7 @@ import { renderWelcomeScreen, sendSuggestion } from './components/welcomeScreen.
 import { submitFeedback, renderFeedbackControls } from './api/feedback.js';
 import { callGeminiAPI, runDemoStream } from './api/sseClient.js';
 import { initPwa, triggerInstallPrompt } from './pwa/installPrompt.js';
+import { updateProfileUI, openProfileModal } from './profile/profileStore.js';
 
 export function stopGenerating() {
     if (state.activeAbortController) {
@@ -351,6 +352,7 @@ window.startNewChat = startNewChat;
 window.handleSwitchConversation = handleSwitchConversation;
 window.handleDeleteConversation = handleDeleteConversation;
 window.triggerInstallPrompt = triggerInstallPrompt;
+window.openProfileModal = openProfileModal;
 
 // Application Initialization
 window.addEventListener('load', async () => {
@@ -426,6 +428,7 @@ window.addEventListener('load', async () => {
     initializeScrollAffordance();
     initModalListeners();
     initPwa();
+    updateProfileUI();
     refreshIcons();
 
     // Focus input on desktop only

@@ -28,6 +28,7 @@ const PRECACHE_ASSETS = [
     '/src/js/components/toolTray.js',
     '/src/js/components/welcomeScreen.js',
     '/src/js/pwa/installPrompt.js',
+    '/src/js/profile/profileStore.js',
     '/src/js/storage/conversationStore.js',
     '/src/js/utils/dom.js',
     '/src/js/utils/markdown.js'

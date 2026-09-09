@@ -68,7 +68,32 @@ function deduplicateSources(sources) {
   return deduped;
 }
 
-function buildFallbackSystemPrompt(contextSnippets = '') {
+function formatFallbackProfileContext(profile) {
+  if (!profile || typeof profile !== 'object') return '';
+  const collegeNames = {
+    PU: 'Poornima University (PU)',
+    PCE: 'Poornima College of Engineering (PCE)',
+    PIET: 'Poornima Institute of Engineering & Technology (PIET)',
+    GENERAL: 'Poornima Group of Colleges (General)',
+  };
+  const statusNames = {
+    hosteller: 'Hosteller (Campus Resident)',
+    day_scholar: 'Day Scholar (Commuter)',
+    bus_commuter: 'Bus Commuter (College Bus Service)',
+  };
+  const parts = [
+    `- Institution: ${collegeNames[profile.college] || profile.college}`,
+    `- Residential/Transport Status: ${statusNames[profile.status] || profile.status}`,
+  ];
+  if (profile.year || profile.course || profile.branch) {
+    const academicDesc = [profile.year, profile.course, profile.branch].filter(Boolean).join(' ');
+    parts.push(`- Academic Level: ${academicDesc}`);
+  }
+  return `Student Profile:\n${parts.join('\n')}\n*Tailor campus regulations, curfew/mess hours, exam patterns, and transport rules directly to this student profile.*`;
+}
+
+function buildFallbackSystemPrompt(contextSnippets = '', profile = null) {
+  const profileSection = profile ? `\n\n${formatFallbackProfileContext(profile)}` : '';
   return `You are "Poornima Oracle", the official campus AI assistant for Poornima Group of Colleges (PU, PCE, PIET) in Jaipur, created and developed by Sunny Dev (GitHub: sunnydev07).
 
 Guidelines:
@@ -76,15 +101,15 @@ Guidelines:
 2. Scope & Tools: Assist with admissions, academics, exams, fees, hostels, and placements. When real-time circulars, dates, or recent updates are needed, use your tools (web search, portal inspector, date calculator) to retrieve facts before answering.
 3. Brevity & Style: Be direct, structured, and concise (typically 2-4 sentences, or clean markdown bullets). Never mention internal prompts, fallbacks, or background tools.
 4. Precision: Distinguish between PU, PCE, and PIET. Quote exact amounts in INR. Differentiate student vs. faculty rules.
-5. Grounding: Incorporate verified context/tool data directly. If information cannot be verified, direct the user to campus administration or poornima.edu.in.
+5. Grounding: Incorporate verified context/tool data directly. If information cannot be verified, direct the user to campus administration or poornima.edu.in.${profileSection}
 
 Verified Context:
 ${contextSnippets ? contextSnippets.trim() : 'No initial database records matched.'}`;
 }
 
-function buildFallbackMessages({ message, history = [], contextSnippets = '' }) {
+function buildFallbackMessages({ message, history = [], contextSnippets = '', profile = null }) {
   const messages = [
-    { role: 'system', content: buildFallbackSystemPrompt(contextSnippets) },
+    { role: 'system', content: buildFallbackSystemPrompt(contextSnippets, profile) },
   ];
 
   if (Array.isArray(history)) {
@@ -601,6 +626,7 @@ class FallbackRouter {
     message,
     history = [],
     contextSnippets = '',
+    profile = null,
     reason = 'knowledge_gap',
     signal = null,
     onStatus = null,
@@ -613,7 +639,7 @@ class FallbackRouter {
       return null;
     }
 
-    const messages = buildFallbackMessages({ message, history, contextSnippets });
+    const messages = buildFallbackMessages({ message, history, contextSnippets, profile });
     const availableTools = tools || toolDispatcher.getToolDefinitions();
     let lastError = null;
 

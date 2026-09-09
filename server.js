@@ -475,14 +475,17 @@ function normalizeForCache(value) {
     .toLowerCase();
 }
 
-function getQueryCacheKey(message, history) {
+function getQueryCacheKey(message, history, profile = null) {
   const payload = {
-    v: 2,
+    v: 3,
     message: normalizeForCache(message),
     history: getRecentHistoryEntries(history, message).map((entry) => ({
       role: entry.role,
       content: normalizeForCache(entry.content),
     })),
+    profile: profile
+      ? { c: profile.college, s: profile.status, y: profile.year, cr: profile.course, b: profile.branch }
+      : null,
   };
 
   return crypto.createHash('sha256').update(JSON.stringify(payload), 'utf8').digest('hex');
@@ -530,6 +533,7 @@ async function streamFallbackResponse(res, {
   message,
   history = [],
   contextSnippets = '',
+  profile = null,
   reason = 'knowledge_gap',
   clientAbortController,
   queryCacheKey = null,
@@ -546,6 +550,7 @@ async function streamFallbackResponse(res, {
       message,
       history,
       contextSnippets,
+      profile,
       reason,
       signal: clientAbortController.signal,
       onStatus: (statusPayload) => {
@@ -612,7 +617,42 @@ async function streamFallbackResponse(res, {
 }
 
 
-function buildSystemInstruction(contextSnippets) {
+function sanitizeProfile(rawProfile) {
+  if (!rawProfile || typeof rawProfile !== 'object') return null;
+  const college = ['PU', 'PCE', 'PIET', 'GENERAL'].includes(rawProfile.college) ? rawProfile.college : 'GENERAL';
+  const status = ['hosteller', 'day_scholar', 'bus_commuter'].includes(rawProfile.status) ? rawProfile.status : 'day_scholar';
+  const course = typeof rawProfile.course === 'string' ? rawProfile.course.slice(0, 30).trim() : 'B.Tech';
+  const year = typeof rawProfile.year === 'string' ? rawProfile.year.slice(0, 20).trim() : '1st';
+  const branch = typeof rawProfile.branch === 'string' ? rawProfile.branch.slice(0, 50).trim() : '';
+  return { college, status, course, year, branch };
+}
+
+function formatProfileContext(profile) {
+  if (!profile) return '';
+  const collegeNames = {
+    PU: 'Poornima University (PU)',
+    PCE: 'Poornima College of Engineering (PCE)',
+    PIET: 'Poornima Institute of Engineering & Technology (PIET)',
+    GENERAL: 'Poornima Group of Colleges (General)',
+  };
+  const statusNames = {
+    hosteller: 'Hosteller (Campus Resident)',
+    day_scholar: 'Day Scholar (Commuter)',
+    bus_commuter: 'Bus Commuter (College Bus Service)',
+  };
+  const parts = [
+    `- Institution: ${collegeNames[profile.college] || profile.college}`,
+    `- Residential/Transport Status: ${statusNames[profile.status] || profile.status}`,
+  ];
+  if (profile.year || profile.course || profile.branch) {
+    const academicDesc = [profile.year, profile.course, profile.branch].filter(Boolean).join(' ');
+    parts.push(`- Academic Level: ${academicDesc}`);
+  }
+  return `Student Profile:\n${parts.join('\n')}\n*Tailor campus regulations, curfew/mess hours, exam patterns, and transport rules directly to this student profile.*`;
+}
+
+function buildSystemInstruction(contextSnippets, profile = null) {
+  const profileSection = profile ? `\n\n${formatProfileContext(profile)}` : '';
   return `You are "Poornima Oracle", the official campus AI assistant for Poornima Group of Colleges (PU, PCE, PIET) in Jaipur, created and developed by Sunny Dev (GitHub: sunnydev07).
 
 Guidelines:
@@ -620,7 +660,7 @@ Guidelines:
 2. Scope & Accuracy: Answer campus queries using the verified institutional context below. Differentiate between PU, PCE, and PIET.
 3. Brevity: Keep responses direct and concise (typically 2-4 sentences, or clean markdown bullets for lists). Avoid conversational filler.
 4. Precision: Quote monetary amounts in INR. Differentiate student vs. faculty rules (fees, attendance, exams, leave).
-5. Uncertainty: If context lacks required facts, state clearly what is unknown without guessing, and direct the user to campus administration or poornima.edu.in.
+5. Uncertainty: If context lacks required facts, state clearly what is unknown without guessing, and direct the user to campus administration or poornima.edu.in.${profileSection}
 
 Verified Context:
 ${contextSnippets || 'No direct institutional database context found.'}`;
@@ -649,7 +689,7 @@ async function createQueryEmbedding(message) {
   });
 }
 
-async function startAnswerStream(message, historyContext, contextSnippets, externalSignal) {
+async function startAnswerStream(message, historyContext, contextSnippets, profile, externalSignal) {
   return withTransientRetries('Gemini answer stream start', async () => {
     const abortController = createRequestAbortController(RAG_REQUEST_TIMEOUT_MS);
     const combinedSignal = externalSignal || abortController.signal;
@@ -657,7 +697,7 @@ async function startAnswerStream(message, historyContext, contextSnippets, exter
       return await ai.models.generateContentStream({
         model: 'gemini-2.5-flash',
         config: {
-          systemInstruction: buildSystemInstruction(contextSnippets),
+          systemInstruction: buildSystemInstruction(contextSnippets, profile),
           httpOptions: {
             timeout: RAG_REQUEST_TIMEOUT_MS,
           },
@@ -711,7 +751,8 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
 
   const message = sanitizeText(req.body?.message);
   const history = Array.isArray(req.body?.history) ? req.body.history : [];
-  const queryCacheKey = message ? getQueryCacheKey(message, history) : null;
+  const profile = sanitizeProfile(req.body?.profile);
+  const queryCacheKey = message ? getQueryCacheKey(message, history, profile) : null;
 
   const clientOpenRouterKey = req.headers['x-openrouter-key'] ? String(req.headers['x-openrouter-key']).trim() : '';
   const clientOllamaKey = req.headers['x-ollama-key'] ? String(req.headers['x-ollama-key']).trim() : '';
@@ -750,6 +791,7 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
           message,
           history,
           contextSnippets: '',
+          profile,
           reason: 'primary_unconfigured',
           clientAbortController,
           queryCacheKey,
@@ -827,6 +869,7 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
           message,
           history,
           contextSnippets: '',
+          profile,
           reason: 'pinecone_error',
           clientAbortController,
           queryCacheKey,
@@ -853,6 +896,7 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
         message,
         history,
         contextSnippets: '',
+        profile,
         reason: 'knowledge_gap',
         clientAbortController,
         queryCacheKey,
@@ -866,7 +910,7 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
 
     let stream;
     try {
-      stream = await startAnswerStream(message, historyContext, contextSnippets, clientAbortController.signal);
+      stream = await startAnswerStream(message, historyContext, contextSnippets, profile, clientAbortController.signal);
     } catch (geminiError) {
       console.warn('Primary Gemini stream start failed:', geminiError?.message || geminiError);
       if (currentFallbackRouter.isConfigured()) {
@@ -875,6 +919,7 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
           message,
           history,
           contextSnippets,
+          profile,
           reason: isTransientError(geminiError) ? 'gemini_quota' : 'gemini_error',
           clientAbortController,
           queryCacheKey,
@@ -916,6 +961,7 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
             message,
             history,
             contextSnippets,
+            profile,
             reason: 'refusal',
             clientAbortController,
             queryCacheKey,
@@ -943,6 +989,7 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
           message,
           history,
           contextSnippets,
+          profile,
           reason: 'refusal',
           clientAbortController,
           queryCacheKey,
@@ -964,6 +1011,7 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
         message,
         history,
         contextSnippets: '',
+        profile,
         reason: 'chat_error',
         clientAbortController,
         queryCacheKey,

@@ -155,10 +155,10 @@ interface StudentProfile {
   ```
 
 ### 2.5 Execution Checklist
-- [ ] Create `src/js/profile/profileStore.js` with getter, setter, and default fallback.
-- [ ] Add Profile Pill to `index.html` header and modal settings editor in `src/js/components/modal.js`.
-- [ ] Pass `profile` parameter from `src/js/api/sseClient.js` in `/api/chat` payload.
-- [ ] Update `server.js:buildSystemInstruction()` and `services/fallback-router.js:buildFallbackSystemPrompt()` to incorporate user profile constraints.
+- [x] Create `src/js/profile/profileStore.js` with getter, setter, and default fallback.
+- [x] Add Profile Pill to `index.html` header and modal settings editor in `src/js/components/modal.js`.
+- [x] Pass `profile` parameter from `src/js/api/sseClient.js` in `/api/chat` payload.
+- [x] Update `server.js:buildSystemInstruction()` and `services/fallback-router.js:buildFallbackSystemPrompt()` to incorporate user profile constraints.
 
 ---
 
