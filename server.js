@@ -13,6 +13,8 @@ const { GoogleGenAI } = require('@google/genai');
 const { Pinecone } = require('@pinecone-database/pinecone');
 const { fallbackRouter } = require('./services/fallback-router');
 const { mcpManager } = require('./services/mcp-manager');
+const cron = require('node-cron');
+const { syncNotices, NOTICES_NAMESPACE } = require('./services/crawler/notice-sync');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -33,6 +35,9 @@ const pineconeNamespace = process.env.PINECONE_NAMESPACE ? process.env.PINECONE_
 const embeddingModel = process.env.GEMINI_EMBEDDING_MODEL
   ? process.env.GEMINI_EMBEDDING_MODEL.trim()
   : 'gemini-embedding-001';
+const adminApiKey = process.env.ADMIN_API_KEY ? process.env.ADMIN_API_KEY.trim() : '';
+const noticeSyncCron = process.env.NOTICE_SYNC_CRON ? process.env.NOTICE_SYNC_CRON.trim() : '30 0 * * *'; // Default: 6:00 AM IST (00:30 UTC)
+const noticeSyncEnabled = process.env.NOTICE_SYNC_ENABLED !== 'false'; // Default: true
 
 function parsePositiveInteger(value, fallback) {
   const parsed = Number.parseInt(value, 10);
@@ -852,15 +857,55 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
 
     let queryResponse;
     try {
-      const pineconeQueryOptions = {
+      // === RAG 2.0: Dual-Namespace Parallel Query ===
+      // Query both the handbook (__default__) and notices namespaces concurrently
+      const baseQueryOptions = {
         topK: RAG_TOP_K,
         vector: queryVector,
         includeMetadata: true,
       };
-      if (pineconeNamespace) {
-        pineconeQueryOptions.namespace = pineconeNamespace;
+
+      const handbookQuery = pineconeIndex.query({
+        ...baseQueryOptions,
+        ...(pineconeNamespace ? { namespace: pineconeNamespace } : {}),
+      });
+
+      const noticesQuery = pineconeIndex.query({
+        ...baseQueryOptions,
+        namespace: NOTICES_NAMESPACE,
+      });
+
+      const [handbookResult, noticesResult] = await Promise.allSettled([handbookQuery, noticesQuery]);
+
+      // Merge matches from both namespaces
+      const handbookMatches = handbookResult.status === 'fulfilled'
+        ? (Array.isArray(handbookResult.value?.matches) ? handbookResult.value.matches : [])
+        : [];
+      const noticeMatches = noticesResult.status === 'fulfilled'
+        ? (Array.isArray(noticesResult.value?.matches) ? noticesResult.value.matches : [])
+        : [];
+
+      if (handbookResult.status === 'rejected') {
+        console.warn('Handbook namespace query failed:', handbookResult.reason?.message || handbookResult.reason);
       }
-      queryResponse = await pineconeIndex.query(pineconeQueryOptions);
+      if (noticesResult.status === 'rejected') {
+        console.warn('Notices namespace query failed:', noticesResult.reason?.message || noticesResult.reason);
+      }
+
+      // Tag notice matches with portal-notice IDs for frontend badge rendering
+      for (const match of noticeMatches) {
+        if (match?.id && !match.id.startsWith('portal-notice-')) {
+          match.id = `portal-notice-${match.id}`;
+        }
+      }
+
+      // Combine and sort by cosine similarity score (descending)
+      const allMatches = [...handbookMatches, ...noticeMatches]
+        .sort((a, b) => (b?.score || 0) - (a?.score || 0));
+
+      queryResponse = { matches: allMatches };
+
+      console.log(`RAG 2.0: Handbook=${handbookMatches.length} + Notices=${noticeMatches.length} → ${allMatches.length} total matches`);
     } catch (pineconeError) {
       console.warn('Pinecone query failed:', pineconeError?.message || pineconeError);
       if (currentFallbackRouter.isConfigured()) {
@@ -1071,6 +1116,69 @@ app.post('/api/feedback', feedbackRateLimiter, (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------------------------------------------------------------------------
+// RAG 2.0: Notice Sync Admin Endpoint & Runner
+// ---------------------------------------------------------------------------
+
+let noticeSyncRunning = false;
+
+/**
+ * Run the notice sync pipeline with shared AI/Pinecone clients.
+ * Returns the sync result object.
+ */
+async function runNoticeSync(options = {}) {
+  if (noticeSyncRunning) {
+    return { success: false, errors: ['A sync is already in progress.'] };
+  }
+
+  noticeSyncRunning = true;
+  try {
+    const result = await syncNotices({
+      ai: ai || undefined,
+      pineconeIndex: pineconeIndex || undefined,
+      ...options,
+    });
+    return result;
+  } finally {
+    noticeSyncRunning = false;
+  }
+}
+
+/**
+ * POST /api/sync-notices — Admin-only endpoint to trigger notice ingestion.
+ * Protected by ADMIN_API_KEY header check.
+ */
+app.post('/api/sync-notices', async (req, res) => {
+  // Authenticate with admin API key
+  const providedKey = (req.headers['x-admin-key'] || req.headers['authorization']?.replace('Bearer ', '') || '').trim();
+
+  if (!adminApiKey) {
+    return res.status(503).json({
+      error: 'Admin API key not configured. Set ADMIN_API_KEY in environment.',
+    });
+  }
+
+  if (providedKey !== adminApiKey) {
+    return res.status(401).json({ error: 'Unauthorized. Invalid admin API key.' });
+  }
+
+  if (noticeSyncRunning) {
+    return res.status(409).json({ error: 'A notice sync is already in progress. Try again later.' });
+  }
+
+  const dryRun = req.body?.dryRun === true;
+
+  // Run sync asynchronously but respond with result
+  try {
+    console.log(`[NoticeSyncAPI] Manual sync triggered (dryRun=${dryRun})`);
+    const result = await runNoticeSync({ dryRun });
+    res.json({ ok: result.success, ...result });
+  } catch (err) {
+    console.error('[NoticeSyncAPI] Sync error:', err);
+    res.status(500).json({ error: 'Notice sync failed.', details: err.message });
+  }
+});
+
 async function gracefulShutdown(signal) {
   console.log(`Received ${signal}. Closing HTTP server gracefully...`);
   await mcpManager.closeAll().catch(() => {});
@@ -1106,6 +1214,27 @@ const server = app.listen(PORT, () => {
   }).catch((err) => {
     console.warn('[McpManager] Initialization warning:', err.message);
   });
+
+  // RAG 2.0: Schedule automatic notice sync cron
+  if (noticeSyncEnabled && cron.validate(noticeSyncCron)) {
+    cron.schedule(noticeSyncCron, async () => {
+      console.log(`[NoticeSyncCron] Scheduled sync triggered at ${new Date().toISOString()}`);
+      try {
+        const result = await runNoticeSync();
+        console.log(`[NoticeSyncCron] Sync completed: ${result.vectorsUpserted || 0} vectors upserted, ${result.errors?.length || 0} warnings`);
+      } catch (err) {
+        console.error('[NoticeSyncCron] Sync failed:', err.message);
+      }
+    }, {
+      timezone: 'Asia/Kolkata',
+      noOverlap: true,
+    });
+    console.log(`[NoticeSyncCron] Scheduled: "${noticeSyncCron}" (Asia/Kolkata timezone)`);
+  } else if (!noticeSyncEnabled) {
+    console.log('[NoticeSyncCron] Disabled (NOTICE_SYNC_ENABLED=false)');
+  } else {
+    console.warn(`[NoticeSyncCron] Invalid cron expression: "${noticeSyncCron}". Skipping schedule.`);
+  }
 
   if (missingEnvVars.length > 0) {
     console.warn(`Missing environment variables: ${missingEnvVars.join(', ')}`);

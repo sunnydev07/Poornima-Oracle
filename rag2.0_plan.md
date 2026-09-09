@@ -224,11 +224,11 @@ interface StudentProfile {
 - **Admin Endpoint:** `POST /api/sync-notices` secured with an admin API key.
 
 ### 3.4 Execution Checklist
-- [ ] Create `services/crawler/notice-sync.js` with Cheerio scraper and deduplication cache.
-- [ ] Implement text chunker and Gemini embedding batch upsert to Pinecone namespace `notices`.
-- [ ] Update `server.js` vector query logic to search both `__default__` and `notices` namespaces in parallel.
-- [ ] Add `npm run sync:notices` script to `package.json`.
-- [ ] Add cron scheduler in `server.js` for automated nightly runs.
+- [x] Create `services/crawler/notice-sync.js` with Cheerio scraper and deduplication cache.
+- [x] Implement text chunker and Gemini embedding batch upsert to Pinecone namespace `notices`.
+- [x] Update `server.js` vector query logic to search both `__default__` and `notices` namespaces in parallel.
+- [x] Add `npm run sync:notices` script to `package.json`.
+- [x] Add cron scheduler in `server.js` for automated nightly runs.
 
 ---
 
