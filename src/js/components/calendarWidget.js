@@ -57,13 +57,17 @@ let currentFilter = 'all';
 let showAllEvents = false;
 
 /**
- * Check if the widget is currently collapsed
+ * Check if the widget is currently collapsed (defaults to true)
  */
 export function isCalendarCollapsed() {
   try {
-    return localStorage.getItem(STORAGE_COLLAPSED_KEY) === 'true';
+    const saved = localStorage.getItem(STORAGE_COLLAPSED_KEY);
+    if (saved === null) {
+      return true; // Collapsed by default
+    }
+    return saved === 'true';
   } catch {
-    return false;
+    return true;
   }
 }
 
