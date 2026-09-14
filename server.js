@@ -774,6 +774,46 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+app.get('/api/test-models', async (req, res) => {
+  const results = {};
+  if (!ai) {
+    return res.status(500).json({ error: 'AI not initialized' });
+  }
+
+  // 1. Try listing models
+  try {
+    const listRes = await ai.models.list();
+    const models = [];
+    if (listRes && typeof listRes[Symbol.asyncIterator] === 'function') {
+      for await (const m of listRes) {
+        models.push(m.name || m.id || m);
+      }
+    } else if (Array.isArray(listRes?.models)) {
+      models.push(...listRes.models.map(m => m.name || m.id || m));
+    }
+    results.availableModels = models.slice(0, 30);
+  } catch (listErr) {
+    results.listError = listErr?.message || String(listErr);
+  }
+
+  // 2. Test generation on common model candidates
+  const candidates = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite', 'gemini-1.5-flash'];
+  results.tests = {};
+  for (const m of candidates) {
+    try {
+      const resp = await ai.models.generateContent({
+        model: m,
+        contents: 'Hi',
+      });
+      results.tests[m] = { success: true, text: resp?.text?.slice(0, 50) || 'OK' };
+    } catch (err) {
+      results.tests[m] = { success: false, error: err?.message || String(err) };
+    }
+  }
+
+  res.json(results);
+});
+
 app.get('/api/calendar', async (req, res) => {
   try {
     const campus = (req.query.campus || req.query.college || 'ALL').toUpperCase();
