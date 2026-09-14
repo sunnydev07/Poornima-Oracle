@@ -36,6 +36,9 @@ const pineconeNamespace = process.env.PINECONE_NAMESPACE ? process.env.PINECONE_
 const embeddingModel = process.env.GEMINI_EMBEDDING_MODEL
   ? process.env.GEMINI_EMBEDDING_MODEL.trim()
   : 'gemini-embedding-001';
+const chatModel = process.env.GEMINI_MODEL
+  ? process.env.GEMINI_MODEL.trim()
+  : 'gemini-2.0-flash';
 const adminApiKey = process.env.ADMIN_API_KEY ? process.env.ADMIN_API_KEY.trim() : '';
 const noticeSyncCron = process.env.NOTICE_SYNC_CRON ? process.env.NOTICE_SYNC_CRON.trim() : '30 0 * * *'; // Default: 6:00 AM IST (00:30 UTC)
 const noticeSyncEnabled = process.env.NOTICE_SYNC_ENABLED !== 'false'; // Default: true
@@ -713,23 +716,33 @@ async function startAnswerStream(message, historyContext, contextSnippets, profi
   return withTransientRetries('Gemini answer stream start', async () => {
     const abortController = createRequestAbortController(RAG_REQUEST_TIMEOUT_MS);
     const combinedSignal = externalSignal || abortController.signal;
+    const modelsToTry = [chatModel, 'gemini-2.0-flash', 'gemini-1.5-flash'].filter((m, i, arr) => arr.indexOf(m) === i);
+    let lastError;
     try {
-      return await ai.models.generateContentStream({
-        model: 'gemini-2.5-flash',
-        config: {
-          systemInstruction: buildSystemInstruction(contextSnippets, profile),
-          httpOptions: {
-            timeout: RAG_REQUEST_TIMEOUT_MS,
-          },
-          abortSignal: combinedSignal,
-        },
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: `Previous Conversation:\n${historyContext || 'None'}\n\nQuestion: ${message}` }],
-          },
-        ],
-      });
+      for (const modelName of modelsToTry) {
+        try {
+          return await ai.models.generateContentStream({
+            model: modelName,
+            config: {
+              systemInstruction: buildSystemInstruction(contextSnippets, profile),
+              httpOptions: {
+                timeout: RAG_REQUEST_TIMEOUT_MS,
+              },
+              abortSignal: combinedSignal,
+            },
+            contents: [
+              {
+                role: 'user',
+                parts: [{ text: `Previous Conversation:\n${historyContext || 'None'}\n\nQuestion: ${message}` }],
+              },
+            ],
+          });
+        } catch (err) {
+          lastError = err;
+          console.warn(`Model ${modelName} failed to start stream:`, err?.message || err);
+        }
+      }
+      throw lastError;
     } finally {
       abortController.clear();
     }
