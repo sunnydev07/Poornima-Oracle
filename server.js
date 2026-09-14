@@ -1158,12 +1158,13 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
       });
     }
     console.error('Error in /api/chat:', error);
+    const userFacingError = error?.message ? `Failed to process query: ${error.message}` : 'Failed to process the query.';
     if (res.headersSent) {
-      writeSse(res, 'error', { error: 'Failed to process the query.' });
+      writeSse(res, 'error', { error: userFacingError });
       return res.end();
     }
 
-    res.status(500).json({ error: 'Failed to process the query.' });
+    res.status(500).json({ error: userFacingError });
   }
 });
 
