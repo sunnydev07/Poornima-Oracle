@@ -12,6 +12,7 @@
 
 import { getStudentProfile } from '../profile/profileStore.js';
 import { escapeHtml, refreshIcons, adjustTextareaHeight } from '../utils/dom.js';
+import { getCalendarEndpoint } from '../config.js';
 
 const STORAGE_COLLAPSED_KEY = 'poornima_calendar_widget_collapsed';
 
@@ -108,7 +109,8 @@ export function toggleCalendarCollapsed() {
  */
 export async function fetchCalendarEvents(college = 'ALL') {
   try {
-    const res = await fetch(`/api/calendar?college=${encodeURIComponent(college)}&limit=15`);
+    const endpoint = getCalendarEndpoint(college, 15);
+    const res = await fetch(endpoint);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (data.ok && Array.isArray(data.upcoming)) {

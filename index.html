@@ -11,17 +11,17 @@
     <link rel="stylesheet" href="styles.css">
 
     <!-- Progressive Web App (PWA) Manifest & Icons -->
-    <link rel="manifest" href="/manifest.json">
+    <link rel="manifest" href="./manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Poornima Oracle">
-    <link rel="apple-touch-icon" href="/src/assets/icon-192.png">
-    <link rel="icon" type="image/svg+xml" href="/src/assets/icon.svg">
-    <link rel="icon" type="image/png" sizes="192x192" href="/src/assets/icon-192.png">
-    <link rel="icon" type="image/png" sizes="512x512" href="/src/assets/icon-512.png">
+    <link rel="apple-touch-icon" href="./src/assets/icon-192.png">
+    <link rel="icon" type="image/svg+xml" href="./src/assets/icon.svg">
+    <link rel="icon" type="image/png" sizes="192x192" href="./src/assets/icon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="./src/assets/icon-512.png">
 
     <!-- Lucide Icons (Local first for 100% offline & fast reliability, CDN fallback) -->
-    <script src="/src/vendor/lucide.min.js"></script>
+    <script src="./src/vendor/lucide.min.js"></script>
     <script>
         if (typeof window.lucide === 'undefined') {
             document.write('<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"><\/script>');
@@ -29,13 +29,13 @@
     </script>
 
     <!-- Markdown parsing and sanitization -->
-    <script src="/src/vendor/marked.min.js"></script>
+    <script src="./src/vendor/marked.min.js"></script>
     <script>
         if (typeof window.marked === 'undefined') {
             document.write('<script src="https://unpkg.com/marked@16.2.1/lib/marked.umd.js"><\/script>');
         }
     </script>
-    <script src="/src/vendor/purify.min.js"></script>
+    <script src="./src/vendor/purify.min.js"></script>
     <script>
         if (typeof window.DOMPurify === 'undefined') {
             document.write('<script src="https://unpkg.com/dompurify@3.2.3/dist/purify.min.js"><\/script>');
@@ -455,17 +455,18 @@
             50% { opacity: 0.4; transform: scale(0.85); }
         }
 
-        /* Auto-hiding Main Header on Scroll */
+        /* Auto-hiding Main Header on Scroll (compositor-only: no layout shift) */
         .main-header {
-            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-                        margin-top 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+            transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1),
                         opacity 0.25s ease;
-            will-change: transform, margin-top;
+            will-change: transform;
+            transform: translateZ(0);
+            backface-visibility: hidden;
+            -webkit-backface-visibility: hidden;
         }
 
         .main-header.header-hidden {
-            transform: translateY(-100%);
-            margin-top: -4rem;
+            transform: translateY(-110%) translateZ(0);
             opacity: 0;
             pointer-events: none;
         }
@@ -912,7 +913,7 @@
 
             <!-- Header -->
             <header id="mainHeader"
-                class="main-header h-16 border-b border-white/5 flex items-center justify-between px-4 md:px-8 bg-zinc-950/80 backdrop-blur-md z-30 sticky top-0">
+                class="main-header absolute top-0 inset-x-0 h-16 border-b border-white/5 flex items-center justify-between px-4 md:px-8 bg-zinc-950/80 backdrop-blur-md z-30">
                 <div class="flex items-center gap-3">
                     <!-- Mobile Menu Toggle -->
                     <button onclick="openMobileSidebar()"
@@ -962,7 +963,7 @@
                     <div class="chat-orb chat-orb-blue"></div>
                     <div class="chat-orb chat-orb-purple"></div>
                 </div>
-                <div class="relative z-10 h-full overflow-y-auto p-4 md:p-6 scrollbar-thin" id="chatContainer">
+                <div class="relative z-10 h-full overflow-y-auto px-4 pb-4 pt-20 md:px-6 md:pb-6 md:pt-24 scrollbar-thin" id="chatContainer">
                     <!-- Content injected via JS -->
                 </div>
                 <div class="chat-bottom-fade" aria-hidden="true"></div>
@@ -1031,7 +1032,7 @@
     </template>
 
     <!-- Native ES Module Application -->
-    <script type="module" src="/src/js/app.js"></script>
+    <script type="module" src="./src/js/app.js"></script>
 </body>
 
 </html>

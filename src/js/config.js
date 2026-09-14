@@ -2,9 +2,28 @@
  * Poornima Oracle - Configuration & Constants
  */
 
-export const DEFAULT_API_ENDPOINT = typeof window !== 'undefined' && window.location?.origin 
-    ? `${window.location.origin}/api/chat`
-    : 'https://poornima-oracle.onrender.com/api/chat';
+export const RENDER_BACKEND_ENDPOINT = 'https://poornima-oracle.onrender.com/api/chat';
+
+export function isGitHubPages() {
+    if (typeof window === 'undefined' || !window.location) return false;
+    const hostname = (window.location.hostname || '').toLowerCase();
+    return hostname.endsWith('github.io') || hostname.endsWith('github.dev');
+}
+
+export function getDefaultApiEndpoint() {
+    if (typeof window === 'undefined' || !window.location) {
+        return RENDER_BACKEND_ENDPOINT;
+    }
+    // GitHub Pages only hosts static files, so route directly to Render backend
+    if (isGitHubPages()) {
+        return RENDER_BACKEND_ENDPOINT;
+    }
+    return window.location.origin
+        ? `${window.location.origin}/api/chat`
+        : RENDER_BACKEND_ENDPOINT;
+}
+
+export const DEFAULT_API_ENDPOINT = getDefaultApiEndpoint();
 
 export const HISTORY_STORAGE_KEY = 'poornimaOracleConversationHistory';
 export const DEMO_MODE_STORAGE_KEY = 'poornimaOracleDemoMode';
@@ -189,18 +208,45 @@ export const ALL_PROMPTS = [
     },
 ];
 
-export function getDefaultApiEndpoint() {
-    return DEFAULT_API_ENDPOINT;
-}
-
 export function ensureApiEndpoint() {
-    const storedEndpoint = localStorage.getItem(GEMINI_ENDPOINT_STORAGE_KEY);
+    const hasLocalStorage = typeof localStorage !== 'undefined';
+    const storedEndpoint = hasLocalStorage ? localStorage.getItem(GEMINI_ENDPOINT_STORAGE_KEY) : null;
     const normalizedStoredEndpoint = typeof storedEndpoint === 'string' ? storedEndpoint.trim() : '';
-    const endpoint = normalizedStoredEndpoint || getDefaultApiEndpoint();
 
-    if (!normalizedStoredEndpoint) {
-        localStorage.setItem(GEMINI_ENDPOINT_STORAGE_KEY, endpoint);
+    // Auto-heal stale or broken endpoint:
+    // If running on GitHub Pages and stored endpoint points to github.io or is empty,
+    // automatically reset to the live Render backend.
+    const isStaleGitHubEndpoint = isGitHubPages() && normalizedStoredEndpoint && normalizedStoredEndpoint.includes('github.io');
+
+    let endpoint = normalizedStoredEndpoint;
+    if (!normalizedStoredEndpoint || isStaleGitHubEndpoint) {
+        endpoint = getDefaultApiEndpoint();
+        if (hasLocalStorage) {
+            try {
+                localStorage.setItem(GEMINI_ENDPOINT_STORAGE_KEY, endpoint);
+            } catch {
+                // Ignore storage quota or security errors
+            }
+        }
     }
 
     return endpoint;
+}
+
+export function getApiBaseUrl() {
+    const endpoint = ensureApiEndpoint();
+    try {
+        const baseHref = typeof window !== 'undefined' && window.location?.href ? window.location.href : 'https://poornima-oracle.onrender.com';
+        const url = new URL(endpoint, baseHref);
+        url.pathname = url.pathname.replace(/\/api\/chat\/?$/, '').replace(/\/chat\/?$/, '');
+        return url.toString().replace(/\/$/, '');
+    } catch {
+        return isGitHubPages() ? 'https://poornima-oracle.onrender.com' : '';
+    }
+}
+
+export function getCalendarEndpoint(college = 'ALL', limit = 15) {
+    const base = getApiBaseUrl();
+    const prefix = base ? `${base}/api/calendar` : '/api/calendar';
+    return `${prefix}?college=${encodeURIComponent(college)}&limit=${encodeURIComponent(limit)}`;
 }

@@ -97,37 +97,55 @@ export function handleKeyPress(event) {
 }
 
 let lastScrollTop = 0;
+let headerTicking = false;
 
 function initializeScrollAffordance() {
     const chatContainer = document.getElementById('chatContainer');
     if (!chatContainer) return;
 
+    lastScrollTop = Math.max(0, chatContainer.scrollTop);
     chatContainer.addEventListener('scroll', handleChatScroll, { passive: true });
     updateScrollToBottomButton();
 }
 
 function handleChatScroll() {
     const chatContainer = document.getElementById('chatContainer');
-    const header = document.getElementById('mainHeader');
     if (!chatContainer) return;
 
-    const currentScrollTop = Math.max(0, chatContainer.scrollTop);
-    const scrollDelta = currentScrollTop - lastScrollTop;
+    // Coalesce rapid scroll events into one rAF update to avoid
+    // toggle thrashing (the flicker seen at the end of a scroll).
+    if (headerTicking) return;
+    headerTicking = true;
 
-    if (header) {
-        if (currentScrollTop <= 30) {
-            // Near the top: always keep header visible
+    window.requestAnimationFrame(() => {
+        headerTicking = false;
+        const header = document.getElementById('mainHeader');
+        if (!header) {
+            lastScrollTop = Math.max(0, chatContainer.scrollTop);
+            return;
+        }
+
+        const currentScrollTop = Math.max(0, chatContainer.scrollTop);
+        const scrollDelta = currentScrollTop - lastScrollTop;
+        lastScrollTop = currentScrollTop;
+
+        const distanceToBottom =
+            chatContainer.scrollHeight - currentScrollTop - chatContainer.clientHeight;
+
+        if (currentScrollTop <= 40 || distanceToBottom < 160) {
+            // Pinned near the top OR near the bottom (end of scroll down /
+            // streaming autoscroll): keep header stable and visible so
+            // overscroll bounce + programmatic scrollTop jumps can't
+            // rapidly add/remove the class (flicker).
             header.classList.remove('header-hidden');
-        } else if (scrollDelta > 8 && currentScrollTop > 60) {
-            // Scrolling down: hide header to give content maximum screen area
+        } else if (scrollDelta > 6) {
+            // Scrolling down through the middle: hide header
             header.classList.add('header-hidden');
-        } else if (scrollDelta < -8) {
-            // Scrolling up: smoothly reveal header
+        } else if (scrollDelta < -6) {
+            // Scrolling up: reveal header
             header.classList.remove('header-hidden');
         }
-    }
-
-    lastScrollTop = currentScrollTop;
+    });
 
     if (state.scrollAffordanceTimer) return;
 

@@ -130,7 +130,7 @@ export async function triggerInstallPrompt() {
 export function registerServiceWorker() {
     if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
         navigator.serviceWorker
-            .register('/sw.js', { scope: '/' })
+            .register('./sw.js')
             .then((registration) => {
                 console.log('[Oracle PWA] Service Worker registered with scope:', registration.scope);
 

@@ -3,38 +3,39 @@
  * Provides offline caching, app-shell reliability, and instant load times.
  */
 
-const CACHE_NAME = 'poornima-oracle-v2';
+const CACHE_NAME = 'poornima-oracle-v3';
 
 const PRECACHE_ASSETS = [
-    '/',
-    '/index.html',
-    '/styles.css',
-    '/manifest.json',
-    '/src/assets/icon.svg',
-    '/src/assets/icon-192.png',
-    '/src/assets/icon-512.png',
-    '/src/vendor/lucide.min.js',
-    '/src/vendor/marked.min.js',
-    '/src/vendor/purify.min.js',
-    '/src/js/app.js',
-    '/src/js/config.js',
-    '/src/js/state.js',
-    '/src/js/api/feedback.js',
-    '/src/js/api/sseClient.js',
-    '/src/js/audio/speechRecognition.js',
-    '/src/js/audio/speechSynthesizer.js',
-    '/src/js/components/messageBubble.js',
-    '/src/js/components/modal.js',
-    '/src/js/components/sidebar.js',
-    '/src/js/components/sourceChips.js',
-    '/src/js/components/sparkCanvas.js',
-    '/src/js/components/toolTray.js',
-    '/src/js/components/welcomeScreen.js',
-    '/src/js/profile/profileStore.js',
-    '/src/js/pwa/installPrompt.js',
-    '/src/js/storage/conversationStore.js',
-    '/src/js/utils/dom.js',
-    '/src/js/utils/markdown.js'
+    './',
+    './index.html',
+    './styles.css',
+    './manifest.json',
+    './src/assets/icon.svg',
+    './src/assets/icon-192.png',
+    './src/assets/icon-512.png',
+    './src/vendor/lucide.min.js',
+    './src/vendor/marked.min.js',
+    './src/vendor/purify.min.js',
+    './src/js/app.js',
+    './src/js/config.js',
+    './src/js/state.js',
+    './src/js/api/feedback.js',
+    './src/js/api/sseClient.js',
+    './src/js/audio/speechRecognition.js',
+    './src/js/audio/speechSynthesizer.js',
+    './src/js/components/messageBubble.js',
+    './src/js/components/modal.js',
+    './src/js/components/sidebar.js',
+    './src/js/components/sourceChips.js',
+    './src/js/components/sparkCanvas.js',
+    './src/js/components/toolTray.js',
+    './src/js/components/welcomeScreen.js',
+    './src/js/components/calendarWidget.js',
+    './src/js/profile/profileStore.js',
+    './src/js/pwa/installPrompt.js',
+    './src/js/storage/conversationStore.js',
+    './src/js/utils/dom.js',
+    './src/js/utils/markdown.js'
 ];
 
 // Install: precache app shell and static local dependencies
@@ -109,7 +110,7 @@ self.addEventListener('fetch', (event) => {
                 .catch(async () => {
                     const cachedResponse = await caches.match(request);
                     if (cachedResponse) return cachedResponse;
-                    const cachedIndex = await caches.match('/index.html');
+                    const cachedIndex = await caches.match('./index.html') || await caches.match('/index.html') || await caches.match('./');
                     if (cachedIndex) return cachedIndex;
                     return new Response('Offline: Poornima Oracle is currently unavailable without an internet connection.', {
                         status: 503,
