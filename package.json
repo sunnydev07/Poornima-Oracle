@@ -1,23 +1,29 @@
 {
   "name": "poornima-instructor-server",
   "version": "1.0.0",
-  "main": "server.js",
-  "engines": {
-    "node": ">=20"
+  "description": "Instructor assistant server for Poornima Oracle.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sunnydev07/Poornima-Oracle.git"
   },
+  "main": "server.js",
   "scripts": {
     "build:css": "tailwindcss -i ./tailwind.input.css -o ./styles.css --minify",
-    "check": "node --check server.js && node --check chat-contract.js && node --check chat-request-owner.js && npm run check:client",
-    "check:client": "node scripts/check-client.js",
-    "check:css": "npm run build:css && git diff --exit-code -- styles.css",
     "dev": "node server.js",
     "start": "node server.js",
     "start:prod": "pm2 start server.js --name poornima-oracle",
-    "test": "node --test test/*.test.js"
+    "check": "node --check server.js && node --check sw.js && node --check services/fallback-router.js && node --check services/tool-dispatcher.js && node --check services/mcp-manager.js && node --check services/tools/web-search.js && node --check services/tools/web-scraper.js && node --check services/tools/portal-inspector.js && node --check services/tools/datetime-calculator.js && node --check services/crawler/pdf-extractor.js && node --check services/crawler/notice-sync.js && node --check services/calendar-service.js && node --check src/js/config.js && node --check src/js/state.js && node --check src/js/utils/chatExport.js && node --check src/js/profile/profileStore.js && node --check src/js/components/calendarWidget.js && node --check src/js/pwa/installPrompt.js && node --check src/js/app.js",
+    "test:pinecone": "node test-pinecone.js",
+    "test:pdf": "node test-pdf-extractor.js",
+    "test:calendar": "node test-calendar-service.js",
+    "sync:notices": "node services/crawler/notice-sync.js",
+    "sync:notices:dry": "node services/crawler/notice-sync.js --dry-run"
   },
   "dependencies": {
     "@google/genai": "^1.28.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@pinecone-database/pinecone": "^6.1.3",
+    "cheerio": "^1.2.0",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
@@ -25,7 +31,10 @@
     "express-rate-limit": "^8.5.2",
     "helmet": "^8.2.0",
     "node-cache": "^5.1.2",
-    "pm2": "^7.0.1"
+    "node-cron": "^4.6.0",
+    "pdf-parse": "^2.4.5",
+    "pm2": "^7.0.1",
+    "xss": "^1.0.15"
   },
   "devDependencies": {
     "tailwindcss": "^3.4.19"

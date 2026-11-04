@@ -1,27 +1,24 @@
-if (require.main === module) require('dotenv').config();
+require('dotenv').config();
 
 const crypto = require('crypto');
 const path = require('path');
-const { AsyncLocalStorage } = require('node:async_hooks');
 const express = require('express');
 const compression = require('compression');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const xss = require('xss');
 const NodeCache = require('node-cache');
-const {
-  MAX_MESSAGE_CHARS,
-  MAX_HISTORY_MESSAGE_CHARS,
-  MAX_CONTEXT_CHARS,
-  MAX_ANSWER_CHARS,
-  cleanPlainText,
-  cleanStreamText,
-  normalizeHistory,
-  buildHistoryContext,
-} = require('./chat-contract');
 const { GoogleGenAI } = require('@google/genai');
 const { Pinecone } = require('@pinecone-database/pinecone');
+const { fallbackRouter } = require('./services/fallback-router');
+const { mcpManager } = require('./services/mcp-manager');
+const cron = require('node-cron');
+const { syncNotices, NOTICES_NAMESPACE } = require('./services/crawler/notice-sync');
+const { getUpcomingCalendarEvents, getCalendarContextForPrompt } = require('./services/calendar-service');
 
+const app = express();
+app.set('trust proxy', 1);
 const PORT = Number(process.env.PORT) || 3001;
 const DEFAULT_CORS_ORIGIN = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
@@ -35,9 +32,16 @@ const missingEnvVars = requiredEnvVars.filter(
 const geminiApiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : '';
 const pineconeApiKey = process.env.PINECONE_API_KEY ? process.env.PINECONE_API_KEY.trim() : '';
 const pineconeIndexName = process.env.PINECONE_INDEX_NAME ? process.env.PINECONE_INDEX_NAME.trim() : '';
+const pineconeNamespace = process.env.PINECONE_NAMESPACE ? process.env.PINECONE_NAMESPACE.trim() : '';
 const embeddingModel = process.env.GEMINI_EMBEDDING_MODEL
   ? process.env.GEMINI_EMBEDDING_MODEL.trim()
   : 'gemini-embedding-001';
+const chatModel = process.env.GEMINI_MODEL
+  ? process.env.GEMINI_MODEL.trim()
+  : 'gemini-2.0-flash';
+const adminApiKey = process.env.ADMIN_API_KEY ? process.env.ADMIN_API_KEY.trim() : '';
+const noticeSyncCron = process.env.NOTICE_SYNC_CRON ? process.env.NOTICE_SYNC_CRON.trim() : '30 0 * * *'; // Default: 6:00 AM IST (00:30 UTC)
+const noticeSyncEnabled = process.env.NOTICE_SYNC_ENABLED !== 'false'; // Default: true
 
 function parsePositiveInteger(value, fallback) {
   const parsed = Number.parseInt(value, 10);
@@ -74,52 +78,50 @@ const RAG_REQUEST_RETRIES = parseBoundedInteger(process.env.RAG_REQUEST_RETRIES,
 // Pinecone treats 0 as "use default retries"; -1 forces a single attempt.
 const PINECONE_MAX_RETRIES = RAG_REQUEST_RETRIES > 0 ? RAG_REQUEST_RETRIES : -1;
 
+const ai = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
+const pinecone = pineconeApiKey
+  ? new Pinecone({
+      apiKey: pineconeApiKey,
+      fetchApi: createTimeoutFetch(RAG_REQUEST_TIMEOUT_MS),
+      maxRetries: PINECONE_MAX_RETRIES,
+    })
+  : null;
+const pineconeIndex = pinecone && pineconeIndexName ? pinecone.index(pineconeIndexName) : null;
 const queryCacheTtlSeconds = Number.parseInt(process.env.QUERY_CACHE_TTL_SECONDS, 10);
+const queryCache = new NodeCache({
+  stdTTL: Number.isFinite(queryCacheTtlSeconds) && queryCacheTtlSeconds > 0
+    ? queryCacheTtlSeconds
+    : 3600,
+  checkperiod: 120,
+  maxKeys: 1000,
+  useClones: true,
+});
 
-function createTimeoutFetch(timeoutMs, requestSignalStorage) {
+function createTimeoutFetch(timeoutMs) {
   return async (url, init = {}) => {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(new Error('Upstream request timed out.')), timeoutMs);
-    const linkedSignals = [...new Set([init.signal, requestSignalStorage?.getStore()].filter(Boolean))];
-    const abortListeners = [];
-    const cleanup = () => {
-      clearTimeout(timeout);
-      for (const [signal, listener] of abortListeners) {
-        signal.removeEventListener('abort', listener);
-      }
-    };
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     timeout.unref?.();
 
-    for (const signal of linkedSignals) {
-      if (signal.aborted) {
-        controller.abort(signal.reason);
-        break;
+    if (init.signal) {
+      if (init.signal.aborted) {
+        controller.abort(init.signal.reason);
+      } else {
+        init.signal.addEventListener(
+          'abort',
+          () => controller.abort(init.signal.reason),
+          { once: true }
+        );
       }
-      const listener = () => controller.abort(signal.reason);
-      signal.addEventListener('abort', listener, { once: true });
-      abortListeners.push([signal, listener]);
     }
 
     try {
-      const response = await fetch(url, {
+      return await fetch(url, {
         ...init,
         signal: controller.signal,
       });
-      if (!response.body) {
-        cleanup();
-        return response;
-      }
-
-      const { readable, writable } = new TransformStream();
-      response.body.pipeTo(writable, { signal: controller.signal }).then(cleanup, cleanup);
-      return new Response(readable, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers,
-      });
-    } catch (error) {
-      cleanup();
-      throw error;
+    } finally {
+      clearTimeout(timeout);
     }
   };
 }
@@ -156,80 +158,21 @@ function validateApiKeysAtStartup() {
   }
 }
 
-const badWords = ['fuck', 'shit', 'stupid', 'bakwaas', 'laude', 'behenchod', 'gandu'];
+const badWordsRegex = /\b(fuck|shit|bakwaas|behenchod|gandu)\b/i;
+const MAX_HISTORY_MESSAGES = 4;
+const MAX_MESSAGE_CHARS = 2000;
+const MAX_CONTEXT_CHARS = 4000;
 
-function createApp(options = {}) {
-  const app = express();
-  const appConfig = {
-    corsOrigins: DEFAULT_CORS_ORIGIN || [],
-    bodyLimit: '32kb',
-    chatRateLimitWindowMs: CHAT_RATE_LIMIT_WINDOW_MS,
-    chatRateLimitMax: CHAT_RATE_LIMIT_MAX,
-    ragTopK: RAG_TOP_K,
-    ragMinScore: RAG_MIN_SCORE,
-    ragRequestTimeoutMs: RAG_REQUEST_TIMEOUT_MS,
-    ragRequestRetries: RAG_REQUEST_RETRIES,
-    answerTimeoutMs: parsePositiveInteger(process.env.ANSWER_TIMEOUT_MS, 120000),
-    answerIdleTimeoutMs: parsePositiveInteger(process.env.ANSWER_IDLE_TIMEOUT_MS, 30000),
-    maxConcurrentGenerations: parsePositiveInteger(process.env.MAX_CONCURRENT_GENERATIONS, 5),
-    feedbackRateLimitWindowMs: parsePositiveInteger(process.env.FEEDBACK_RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000),
-    feedbackRateLimitMax: parsePositiveInteger(process.env.FEEDBACK_RATE_LIMIT_MAX, 10),
-    cacheMaxKeys: parsePositiveInteger(process.env.QUERY_CACHE_MAX_KEYS, 1000),
-    trustProxyHops: parseBoundedInteger(process.env.TRUST_PROXY_HOPS, 0, 0, 5),
-    ...options.config,
-  };
-  const pineconeRequestSignalStorage = options.pineconeRequestSignalStorage || new AsyncLocalStorage();
-  const aiClient = Object.prototype.hasOwnProperty.call(options, 'ai')
-    ? options.ai
-    : (geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null);
-  const pineconeIndexClient = Object.prototype.hasOwnProperty.call(options, 'pineconeIndex')
-    ? options.pineconeIndex
-    : (pineconeApiKey && pineconeIndexName
-      ? new Pinecone({
-          apiKey: pineconeApiKey,
-          fetchApi: createTimeoutFetch(RAG_REQUEST_TIMEOUT_MS, pineconeRequestSignalStorage),
-          maxRetries: PINECONE_MAX_RETRIES,
-        }).index(pineconeIndexName)
-      : null);
-  const appMissingEnvVars = options.missingEnvVars || missingEnvVars;
-  const queryCache = options.queryCache || new NodeCache({
-    stdTTL: queryCacheTtlSeconds > 0 ? queryCacheTtlSeconds : 3600,
-    checkperiod: 120,
-    useClones: false,
-  });
-  const storeCachedResponse = (key, value) => {
-    const maxKeys = parsePositiveInteger(appConfig.cacheMaxKeys, 1000);
-    if (!queryCache.has(key) && queryCache.keys().length >= maxKeys) {
-      const oldestKey = queryCache.keys()[0];
-      if (oldestKey) queryCache.del(oldestKey);
-    }
-    queryCache.set(key, value);
-  };
-  let activeGenerations = 0;
-  const chatRateLimiter = rateLimit({
-    windowMs: appConfig.chatRateLimitWindowMs,
-    max: appConfig.chatRateLimitMax,
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: { error: 'Too many chat requests. Please wait and try again.' },
-  });
-  const feedbackRateLimiter = rateLimit({
-    windowMs: appConfig.feedbackRateLimitWindowMs,
-    max: appConfig.feedbackRateLimitMax,
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: { error: 'Too many feedback submissions. Please wait and try again.' },
-  });
+const chatRateLimiter = rateLimit({
+  windowMs: CHAT_RATE_LIMIT_WINDOW_MS,
+  max: CHAT_RATE_LIMIT_MAX,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many chat requests. Please wait and try again.' },
+});
 
-  app.set('trust proxy', appConfig.trustProxyHops);
-  app.use((req, res, next) => {
-    req.requestId = crypto.randomUUID();
-    res.setHeader('X-Request-ID', req.requestId);
-    next();
-  });
-
-  app.use(
-    helmet({
+app.use(
+  helmet({
     contentSecurityPolicy: {
       useDefaults: true,
       directives: {
@@ -250,10 +193,8 @@ function createApp(options = {}) {
         fontSrc: ["'self'", 'https://fonts.gstatic.com'],
         connectSrc: [
           "'self'",
-          'https://generativelanguage.googleapis.com',
-          'https://*.generativelanguage.googleapis.com',
-          'https://aiplatform.googleapis.com',
-          'https://*.aiplatform.googleapis.com',
+          'https://poornima-oracle.onrender.com',
+          ...(DEFAULT_CORS_ORIGIN || []),
         ],
         imgSrc: ["'self'", 'data:', 'https:'],
         workerSrc: ["'self'", 'blob:'],
@@ -261,21 +202,100 @@ function createApp(options = {}) {
     },
   })
 );
-  app.use(compression());
-  app.use(cors({
-    origin(origin, callback) {
-      callback(null, !origin || appConfig.corsOrigins.includes(origin));
-    },
-  }));
-  app.use(express.json({ limit: appConfig.bodyLimit }));
+app.use(compression());
+app.use(cors(DEFAULT_CORS_ORIGIN ? { origin: DEFAULT_CORS_ORIGIN } : undefined));
+app.use(express.json({ limit: '32kb' }));
+app.use(express.static(path.join(__dirname)));
+
+function sanitizeText(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return xss(value, {
+    whiteList: {},
+    stripIgnoreTag: true,
+    stripIgnoreTagBody: ['script', 'style'],
+  }).trim();
+}
+
+function detectApiKeyError(error) {
+  const errorMessage = (error?.message || String(error)).toLowerCase();
+  const errorCode = error?.code || error?.status || '';
+
+  if (
+    errorCode === 401 ||
+    errorCode === 403 ||
+    errorMessage.includes('api_key') ||
+    errorMessage.includes('api key') ||
+    errorMessage.includes('apikey') ||
+    errorMessage.includes('unauthorized') ||
+    errorMessage.includes('forbidden') ||
+    errorMessage.includes('invalid api') ||
+    errorMessage.includes('invalid api key') ||
+    errorMessage.includes('permission denied') ||
+    errorMessage.includes('permission_denied') ||
+    errorMessage.includes('authentication') ||
+    errorMessage.includes('unauthorized.') ||
+    errorMessage.includes('api key is invalid') ||
+    errorMessage.includes('key is invalid') ||
+    errorMessage.includes('bad request') ||
+    errorMessage.includes('quota exceeded') ||
+    errorMessage.includes('rate limit')
+  ) {
+    return {
+      isApiKeyError: true,
+      service: errorMessage.includes('pinecone') || errorCode === 403 && errorMessage.includes('index')
+        ? 'Pinecone'
+        : errorMessage.includes('gemini') || errorMessage.includes('google')
+        ? 'Gemini'
+        : 'Unknown',
+      reason: parseApiKeyErrorReason(error, errorMessage),
+    };
+  }
+  return { isApiKeyError: false };
+}
+
+function parseApiKeyErrorReason(error, errorMessage) {
+  if (errorMessage.includes('quota exceeded') || errorMessage.includes('rate limit')) {
+    return 'API quota or rate limit exceeded';
+  }
+  if (errorMessage.includes('invalid') || errorMessage.includes('malformed')) {
+    return 'API key format is invalid or malformed';
+  }
+  if (errorMessage.includes('expired')) {
+    return 'API key has expired';
+  }
+  if (errorMessage.includes('unauthorized') || errorMessage.includes('forbidden') || errorMessage.includes('permission')) {
+    return 'API key lacks required permissions or is not authorized';
+  }
+  if (errorMessage.includes('not found') || errorMessage.includes('does not exist')) {
+    return 'API key does not exist or has been deleted';
+  }
+  return error?.message || 'Unknown API key error';
+}
+
+function logApiKeyError(service, reason, error) {
+  console.error('='.repeat(60));
+  console.error(`API KEY ERROR DETECTED - ${service} Service`);
+  console.error('='.repeat(60));
+  console.error(`Problem: ${reason}`);
+  console.error(`Details: ${error?.message || error}`);
+  console.error(`Full Error:`, error);
+  console.error('='.repeat(60));
+  console.error('Suggested fixes:');
+  console.error('  1. Verify your API key is correctly set in environment variables');
+  console.error('  2. Check if the API key is active and not expired');
+  console.error('  3. Ensure the API key has the required permissions/scopes');
+  console.error('  4. Check if you have exceeded your API usage quota');
+  console.error('='.repeat(60));
+}
 
 function isAbusive(text) {
   if (typeof text !== 'string') {
     return false;
   }
-
-  const lowerText = text.toLowerCase();
-  return badWords.some((word) => lowerText.includes(word));
+  return badWordsRegex.test(text);
 }
 
 function delay(ms) {
@@ -288,41 +308,16 @@ function getErrorStatus(error) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function classifyUpstreamError(error) {
-  const status = getErrorStatus(error);
-  const message = String(error?.message || '').toLowerCase();
-  const code = String(error?.code || error?.name || '').toLowerCase();
-
-  if (status === 429 || message.includes('quota exceeded') || message.includes('rate limit')) {
-    const retryHeader = error?.response?.headers?.get?.('retry-after') ||
-      error?.headers?.get?.('retry-after');
-    const parsedRetryAfter = Number.parseInt(retryHeader, 10);
-    return {
-      status: 429,
-      message: 'The assistant is busy. Please try again shortly.',
-      retryAfter: Number.isFinite(parsedRetryAfter)
-        ? Math.min(Math.max(parsedRetryAfter, 1), 3600)
-        : 30,
-    };
-  }
-  if (status === 408 || status === 504 || code.includes('abort') || message.includes('timeout')) {
-    return { status: 504, message: 'The response took too long. Please try again.' };
-  }
-  if (status === 401 || status === 403) {
-    return { status: 502, message: 'The assistant service could not authorize this request.' };
-  }
-  return { status: 502, message: 'The assistant service could not process this request.' };
-}
-
 function isTransientError(error) {
   const status = getErrorStatus(error);
-  if ([408, 500, 502, 503, 504].includes(status)) {
+  if ([408, 429, 500, 502, 503, 504].includes(status)) {
     return true;
   }
 
   const code = String(error?.code || error?.name || '').toLowerCase();
   const message = String(error?.message || error || '').toLowerCase();
   return (
+    code.includes('abort') ||
     code === 'etimedout' ||
     code === 'econnreset' ||
     code === 'econnrefused' ||
@@ -333,24 +328,20 @@ function isTransientError(error) {
   );
 }
 
-async function withTransientRetries(operationName, operation, maxRetries = RAG_REQUEST_RETRIES) {
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+async function withTransientRetries(operationName, operation) {
+  for (let attempt = 0; attempt <= RAG_REQUEST_RETRIES; attempt++) {
     try {
       return await operation();
     } catch (error) {
-      if (attempt >= maxRetries || !isTransientError(error)) {
+      if (attempt >= RAG_REQUEST_RETRIES || !isTransientError(error)) {
         throw error;
       }
 
       const delayMs = Math.min(250 * 2 ** attempt, 2000);
-      console.warn('Transient upstream request failed', {
-        operation: operationName,
-        requestAttempt: attempt + 1,
-        maxRetries,
-        retryInMs: delayMs,
-        errorName: error?.name || 'Error',
-        status: getErrorStatus(error),
-      });
+      console.warn(
+        `${operationName} failed: ${error?.message || error}. ` +
+        `Retrying in ${delayMs}ms (${attempt + 1}/${RAG_REQUEST_RETRIES}).`
+      );
       await delay(delayMs);
     }
   }
@@ -358,13 +349,63 @@ async function withTransientRetries(operationName, operation, maxRetries = RAG_R
   return null;
 }
 
-function getRecentHistoryEntries(history) {
-  return normalizeHistory(history);
+function createRequestAbortController(timeoutMs) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  timeout.unref?.();
+
+  return {
+    signal: controller.signal,
+    clear: () => clearTimeout(timeout),
+  };
+}
+
+function getRecentHistoryEntries(history, currentMessage = '') {
+  if (!Array.isArray(history) || history.length === 0) {
+    return [];
+  }
+
+  let cleanHistory = history
+    .map((message) => {
+      if (!message || typeof message !== 'object') {
+        return null;
+      }
+
+      const content = sanitizeText(message.content);
+      if (!content) {
+        return null;
+      }
+
+      return {
+        role: message.role === 'user' ? 'user' : 'assistant',
+        content,
+      };
+    })
+    .filter(Boolean);
+
+  if (cleanHistory.length > 0 && typeof currentMessage === 'string' && currentMessage.trim()) {
+    const last = cleanHistory[cleanHistory.length - 1];
+    if (last.role === 'user' && last.content.trim() === sanitizeText(currentMessage).trim()) {
+      cleanHistory = cleanHistory.slice(0, -1);
+    }
+  }
+
+  return cleanHistory.slice(-MAX_HISTORY_MESSAGES);
+}
+
+function buildHistoryContext(history, currentMessage = '') {
+  return getRecentHistoryEntries(history, currentMessage)
+    .map((message) => {
+      const role = message.role === 'user' ? 'User' : 'Poornima Oracle';
+      return `${role}: ${message.content}`;
+    })
+    .join('\n')
+    .slice(0, MAX_CONTEXT_CHARS);
 }
 
 function buildContextSnippets(matches) {
   return matches
-    .map((match) => cleanPlainText(match?.metadata?.text, MAX_CONTEXT_CHARS))
+    .map((match) => sanitizeText(match?.metadata?.text))
     .filter(Boolean)
     .slice(0, 3)
     .join('\n\n')
@@ -372,22 +413,7 @@ function buildContextSnippets(matches) {
 }
 
 function looksLikeUrl(value) {
-  return /^https?:\/\//i.test(cleanPlainText(value, MAX_HISTORY_MESSAGE_CHARS));
-}
-
-function normalizeSourceUrl(value) {
-  const candidate = cleanPlainText(value, 2048);
-  if (!candidate) return '';
-
-  try {
-    const url = new URL(candidate);
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
-      return '';
-    }
-    return url.toString();
-  } catch (error) {
-    return '';
-  }
+  return /^https?:\/\//i.test(sanitizeText(value));
 }
 
 function getFirstMetadataValue(metadata, keys) {
@@ -396,7 +422,7 @@ function getFirstMetadataValue(metadata, keys) {
   }
 
   for (const key of keys) {
-    const value = cleanPlainText(metadata[key], MAX_HISTORY_MESSAGE_CHARS);
+    const value = sanitizeText(metadata[key]);
     if (value) {
       return value;
     }
@@ -409,7 +435,7 @@ function buildSources(matches) {
   return matches
     .map((match, index) => {
       const metadata = match?.metadata || {};
-      const id = cleanPlainText(match?.id, 200) || `source-${index + 1}`;
+      const id = sanitizeText(match?.id) || `source-${index + 1}`;
       const rawTitle = getFirstMetadataValue(metadata, [
         'documentName',
         'document',
@@ -417,34 +443,44 @@ function buildSources(matches) {
         'file',
         'source',
       ]);
-      const sourceValue = cleanPlainText(metadata.source, MAX_HISTORY_MESSAGE_CHARS);
-      const urlCandidates = [metadata.url, metadata.link, sourceValue];
-      const url = urlCandidates.map(normalizeSourceUrl).find(Boolean) || '';
-      const title = rawTitle && !looksLikeUrl(rawTitle)
-        ? cleanPlainText(rawTitle, 500)
-        : id;
+      const rawUrl = getFirstMetadataValue(metadata, ['url', 'link']);
+      const sourceValue = sanitizeText(metadata.source);
+      const url = rawUrl || (looksLikeUrl(sourceValue) ? sourceValue : '');
+      const title = rawTitle && !looksLikeUrl(rawTitle) ? rawTitle : id;
       const score = typeof match?.score === 'number' ? Number(match.score.toFixed(4)) : null;
+      // Tier 1 #2: pass notice freshness metadata through so the chat UI
+      // can render "Live Notice" + "New" badges for portal-notice-* sources.
+      const publishedAt = getFirstMetadataValue(metadata, [
+        'publishedAt',
+        'published_at',
+        'date',
+        'ingestedAt',
+      ]);
+      const college = getFirstMetadataValue(metadata, ['college']);
+      const category = getFirstMetadataValue(metadata, ['category']);
 
-      return { id, title, url, score };
+      const source = { id, title, url, score };
+      if (publishedAt) source.publishedAt = publishedAt;
+      if (college) source.college = college;
+      if (category) source.category = category;
+      return source;
     })
     .filter((source) => source.title || source.url)
     .slice(0, 3);
 }
 
-function filterRelevantMatches(matches, minimumScore = RAG_MIN_SCORE) {
+function filterRelevantMatches(matches) {
   return matches.filter((match) => (
     typeof match?.score === 'number' &&
     Number.isFinite(match.score) &&
-    match.score >= minimumScore
+    match.score >= RAG_MIN_SCORE
   ));
 }
 
 function writeSse(res, event, payload) {
-  if (res.destroyed || res.writableEnded || !res.writable) return false;
   res.write(`event: ${event}\n`);
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
   res.flush?.();
-  return true;
 }
 
 function setSseHeaders(res) {
@@ -455,21 +491,24 @@ function setSseHeaders(res) {
 }
 
 function normalizeForCache(value) {
-  return cleanPlainText(value, MAX_HISTORY_MESSAGE_CHARS)
+  return sanitizeText(value)
     .normalize('NFKC')
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
 }
 
-function getQueryCacheKey(message, history) {
+function getQueryCacheKey(message, history, profile = null) {
   const payload = {
-    v: 2,
+    v: 3,
     message: normalizeForCache(message),
-    history: getRecentHistoryEntries(history).map((entry) => ({
+    history: getRecentHistoryEntries(history, message).map((entry) => ({
       role: entry.role,
       content: normalizeForCache(entry.content),
     })),
+    profile: profile
+      ? { c: profile.college, s: profile.status, y: profile.year, cr: profile.course, b: profile.branch }
+      : null,
   };
 
   return crypto.createHash('sha256').update(JSON.stringify(payload), 'utf8').digest('hex');
@@ -483,385 +522,853 @@ function writeCachedResponse(res, cachedResponse) {
     answer: cachedResponse.answer,
     sources: cachedResponse.sources,
     cached: true,
+    provider: cachedResponse.provider,
+    fallback: cachedResponse.fallback,
   });
   res.end();
 }
 
-function buildSystemInstruction(contextSnippets) {
-  return `You are "Poornima Oracle", the official AI assistant for the Poornima Group of Colleges (PU, PCE, PIET).
+const REFUSAL_PATTERNS = [
+  /do not have (enough |any )?information/i,
+  /don't have (enough |any )?information/i,
+  /not (present|found|available|mentioned) in the (provided )?(context|database|documents|records)/i,
+  /no information (is )?(available|provided|found) in the (provided )?context/i,
+  /cannot find (any )?information/i,
+  /could not find (any )?information/i,
+  /I (do not|don't) have access to/i,
+  /my knowledge base does not contain/i,
+  /outside the scope of the provided/i,
+  /no relevant database context was found/i,
+  /no relevant context was found/i,
+  /I cannot answer this question based on the provided/i,
+  /I am unable to answer based on the provided/i,
+  /I (do not|don't) have (any )?records/i,
+];
 
-Use the provided database context to answer only Poornima-related questions accurately.
-Keep answers short, usually 2-3 sentences. Use bullet points when more detail is needed.
-If the answer is not present in the provided context, say you do not have enough information instead of guessing.
-When relevant, identify whether the user is a student, parent, or faculty member.
-When money is involved, include exact INR amounts.
-When relevant, distinguish between student awards and alumni awards, and between student leave and faculty leave.
-
-Context:
-${contextSnippets || 'No relevant database context was found.'}`;
+function isRefusalResponse(text) {
+  if (!text || typeof text !== 'string') return false;
+  const trimmed = text.trim();
+  if (trimmed.length > 350) return false;
+  return REFUSAL_PATTERNS.some((pattern) => pattern.test(trimmed));
 }
 
-async function createQueryEmbedding(message, aiClient, appConfig, signal) {
-  return withTransientRetries('Gemini embedding', async () => {
-    const embedResponse = await aiClient.models.embedContent({
-      model: embeddingModel,
-      contents: message,
-      config: {
-        outputDimensionality: 768,
-        httpOptions: {
-          timeout: appConfig.ragRequestTimeoutMs,
-        },
-        abortSignal: signal,
+async function streamFallbackResponse(res, {
+  message,
+  history = [],
+  contextSnippets = '',
+  profile = null,
+  reason = 'knowledge_gap',
+  clientAbortController,
+  queryCacheKey = null,
+  initialSources = [],
+  router = fallbackRouter,
+}) {
+  if (!res.headersSent) {
+    setSseHeaders(res);
+  }
+
+  let fallbackAnswer = '';
+  try {
+    const result = await router.handleFallback({
+      message,
+      history,
+      contextSnippets,
+      profile,
+      reason,
+      signal: clientAbortController.signal,
+      onStatus: (statusPayload) => {
+        if (!clientAbortController.signal.aborted) {
+          writeSse(res, 'status', statusPayload);
+        }
+      },
+      onToolCall: (toolPayload) => {
+        if (!clientAbortController.signal.aborted) {
+          writeSse(res, 'tool_call', toolPayload);
+        }
+      },
+      onToolResult: (resultPayload) => {
+        if (!clientAbortController.signal.aborted) {
+          writeSse(res, 'tool_result', resultPayload);
+        }
+      },
+      onToken: (text) => {
+        if (!clientAbortController.signal.aborted) {
+          fallbackAnswer += text;
+          writeSse(res, 'token', { text });
+        }
       },
     });
 
-    return embedResponse?.embeddings?.[0]?.values || [];
-  }, appConfig.ragRequestRetries);
+    if (clientAbortController.signal.aborted) {
+      return;
+    }
+
+    const finalAnswer = (result?.answer || fallbackAnswer).trim() ||
+      'I was unable to complete the request. Please consult https://poornima.edu.in.';
+    const sources = Array.isArray(result?.sources) && result.sources.length > 0
+      ? result.sources
+      : initialSources;
+    const provider = result?.provider || 'Fallback Cloud Agent';
+
+    if (sources.length > 0) {
+      writeSse(res, 'sources', { sources });
+    }
+
+    if (queryCacheKey && finalAnswer) {
+      queryCache.set(queryCacheKey, {
+        answer: finalAnswer,
+        sources,
+        provider,
+        fallback: true,
+      });
+    }
+
+    writeSse(res, 'done', {
+      answer: finalAnswer,
+      sources,
+      provider,
+      fallback: true,
+    });
+    res.end();
+  } catch (fallbackError) {
+    console.error('Error during fallback streaming:', fallbackError);
+    if (!res.writableEnded) {
+      writeSse(res, 'error', { error: 'Failed to process the query via fallback services.' });
+      res.end();
+    }
+  }
 }
 
-async function startAnswerStream(message, historyContext, contextSnippets, aiClient, appConfig, signal) {
-  return withTransientRetries('Gemini answer stream start', () => aiClient.models.generateContentStream({
-    model: 'gemini-2.5-flash',
-    config: {
-      systemInstruction: buildSystemInstruction(contextSnippets),
-      httpOptions: {
-        timeout: appConfig.answerTimeoutMs,
-      },
-      abortSignal: signal,
-    },
-    contents: [
-      {
-        role: 'user',
-        parts: [{ text: `Previous Conversation:\n${historyContext || 'None'}\n\nQuestion: ${message}` }],
-      },
-    ],
-  }), appConfig.ragRequestRetries);
+
+function sanitizeProfile(rawProfile) {
+  if (!rawProfile || typeof rawProfile !== 'object') return null;
+  const college = ['PU', 'PCE', 'PIET', 'GENERAL'].includes(rawProfile.college) ? rawProfile.college : 'GENERAL';
+  const status = ['hosteller', 'day_scholar', 'bus_commuter'].includes(rawProfile.status) ? rawProfile.status : 'day_scholar';
+  const course = typeof rawProfile.course === 'string' ? rawProfile.course.slice(0, 30).trim() : 'B.Tech';
+  const year = typeof rawProfile.year === 'string' ? rawProfile.year.slice(0, 20).trim() : '1st';
+  const branch = typeof rawProfile.branch === 'string' ? rawProfile.branch.slice(0, 50).trim() : '';
+  return { college, status, course, year, branch };
 }
 
-  app.get('/', (req, res) => {
+function formatProfileContext(profile) {
+  if (!profile) return '';
+  const collegeNames = {
+    PU: 'Poornima University (PU)',
+    PCE: 'Poornima College of Engineering (PCE)',
+    PIET: 'Poornima Institute of Engineering & Technology (PIET)',
+    GENERAL: 'Poornima Group of Colleges (General)',
+  };
+  const statusNames = {
+    hosteller: 'Hosteller (Campus Resident)',
+    day_scholar: 'Day Scholar (Commuter)',
+    bus_commuter: 'Bus Commuter (College Bus Service)',
+  };
+  const parts = [
+    `- Institution: ${collegeNames[profile.college] || profile.college}`,
+    `- Residential/Transport Status: ${statusNames[profile.status] || profile.status}`,
+  ];
+  if (profile.year || profile.course || profile.branch) {
+    const academicDesc = [profile.year, profile.course, profile.branch].filter(Boolean).join(' ');
+    parts.push(`- Academic Level: ${academicDesc}`);
+  }
+  return `Student Profile:\n${parts.join('\n')}\n*Tailor campus regulations, curfew/mess hours, exam patterns, and transport rules directly to this student profile.*`;
+}
+
+function buildSystemInstruction(contextSnippets, profile = null) {
+  const profileSection = profile ? `\n\n${formatProfileContext(profile)}` : '';
+  return `You are "Poornima Oracle", the official campus AI assistant for Poornima Group of Colleges (PU, PCE, PIET) in Jaipur, created and developed by Sunny Dev (GitHub: sunnydev07).
+
+Guidelines:
+1. Creator & Identity: You were created and developed by Sunny Dev (GitHub: sunnydev07). Acknowledge your creator accurately when asked.
+2. Scope & Accuracy: Answer campus queries using the verified institutional context below. Differentiate between PU, PCE, and PIET.
+3. Brevity: Keep responses direct and concise (typically 2-4 sentences, or clean markdown bullets for lists). Avoid conversational filler.
+4. Precision: Quote monetary amounts in INR. Differentiate student vs. faculty rules (fees, attendance, exams, leave).
+5. Uncertainty: If context lacks required facts, state clearly what is unknown without guessing, and direct the user to campus administration or poornima.edu.in.${profileSection}
+
+Verified Context:
+${contextSnippets || 'No direct institutional database context found.'}`;
+}
+
+async function createQueryEmbedding(message) {
+  return withTransientRetries('Gemini embedding', async () => {
+    const abortController = createRequestAbortController(RAG_REQUEST_TIMEOUT_MS);
+    try {
+      const embedResponse = await ai.models.embedContent({
+        model: embeddingModel,
+        contents: message,
+        config: {
+          outputDimensionality: 768,
+          httpOptions: {
+            timeout: RAG_REQUEST_TIMEOUT_MS,
+          },
+          abortSignal: abortController.signal,
+        },
+      });
+
+      return embedResponse?.embeddings?.[0]?.values || [];
+    } finally {
+      abortController.clear();
+    }
+  });
+}
+
+async function startAnswerStream(message, historyContext, contextSnippets, profile, externalSignal) {
+  return withTransientRetries('Gemini answer stream start', async () => {
+    const abortController = createRequestAbortController(RAG_REQUEST_TIMEOUT_MS);
+    const combinedSignal = externalSignal || abortController.signal;
+    const modelsToTry = [chatModel, 'gemini-2.0-flash', 'gemini-1.5-flash'].filter((m, i, arr) => arr.indexOf(m) === i);
+    let lastError;
+    try {
+      for (const modelName of modelsToTry) {
+        try {
+          return await ai.models.generateContentStream({
+            model: modelName,
+            config: {
+              systemInstruction: buildSystemInstruction(contextSnippets, profile),
+              httpOptions: {
+                timeout: RAG_REQUEST_TIMEOUT_MS,
+              },
+              abortSignal: combinedSignal,
+            },
+            contents: [
+              {
+                role: 'user',
+                parts: [{ text: `Previous Conversation:\n${historyContext || 'None'}\n\nQuestion: ${message}` }],
+              },
+            ],
+          });
+        } catch (err) {
+          lastError = err;
+          console.warn(`Model ${modelName} failed to start stream:`, err?.message || err);
+        }
+      }
+      throw lastError;
+    } finally {
+      abortController.clear();
+    }
+  });
+}
+
+app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-  app.get('/styles.css', (req, res) => {
-    res.sendFile(path.join(__dirname, 'styles.css'));
-  });
+app.get('/styles.css', (req, res) => {
+  res.sendFile(path.join(__dirname, 'styles.css'));
+});
 
-  app.get('/chat-contract.js', (req, res) => {
-    res.sendFile(path.join(__dirname, 'chat-contract.js'));
+app.get('/api/health', (req, res) => {
+  res.json({
+    ok: true,
+    configured: missingEnvVars.length === 0,
+    missingEnvVars,
+    fallback: {
+      enabled: fallbackRouter.isEnabled(),
+      configured: fallbackRouter.isConfigured(),
+      providers: fallbackRouter.getAvailableProviders(),
+    },
+    mcp: mcpManager.getStatus(),
+    uptimeSeconds: Math.floor(process.uptime()),
+    memoryUsage: process.memoryUsage(),
+    timestamp: new Date().toISOString(),
   });
+});
 
-  app.get('/chat-request-owner.js', (req, res) => {
-    res.sendFile(path.join(__dirname, 'chat-request-owner.js'));
-  });
+app.get('/api/test-models', async (req, res) => {
+  const results = {};
+  if (!ai) {
+    return res.status(500).json({ error: 'AI not initialized' });
+  }
 
-  app.get('/api/health', (req, res) => {
+  // 1. Try listing models
+  try {
+    const listRes = await ai.models.list();
+    const models = [];
+    if (listRes && typeof listRes[Symbol.asyncIterator] === 'function') {
+      for await (const m of listRes) {
+        models.push(m.name || m.id || m);
+      }
+    } else if (Array.isArray(listRes?.models)) {
+      models.push(...listRes.models.map(m => m.name || m.id || m));
+    }
+    results.availableModels = models.slice(0, 30);
+  } catch (listErr) {
+    results.listError = listErr?.message || String(listErr);
+  }
+
+  // 2. Test generation on common model candidates
+  const candidates = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite', 'gemini-1.5-flash'];
+  results.tests = {};
+  for (const m of candidates) {
+    try {
+      const resp = await ai.models.generateContent({
+        model: m,
+        contents: 'Hi',
+      });
+      results.tests[m] = { success: true, text: resp?.text?.slice(0, 50) || 'OK' };
+    } catch (err) {
+      results.tests[m] = { success: false, error: err?.message || String(err) };
+    }
+  }
+
+  res.json(results);
+});
+
+app.get('/api/calendar', async (req, res) => {
+  try {
+    const campus = (req.query.campus || req.query.college || 'ALL').toUpperCase();
+    const category = (req.query.category || 'all').toLowerCase();
+    const daysAhead = parsePositiveInteger(req.query.daysAhead, 90);
+    const limit = parseBoundedInteger(req.query.limit, 25, 1, 100);
+
+    const data = await getUpcomingCalendarEvents({
+      campus,
+      category,
+      daysAhead,
+      limit,
+    });
+
     res.json({
       ok: true,
-      configured: appMissingEnvVars.length === 0 && Boolean(aiClient && pineconeIndexClient),
-      missingEnvVars: appMissingEnvVars,
+      ...data,
+      timestamp: new Date().toISOString(),
     });
+  } catch (err) {
+    console.error('Error fetching calendar events in /api/calendar:', err);
+    res.status(500).json({
+      ok: false,
+      error: 'Failed to retrieve academic calendar events',
+    });
+  }
+});
+
+app.post('/api/chat', chatRateLimiter, async (req, res) => {
+  const clientAbortController = new AbortController();
+  req.on('close', () => {
+    if (!res.writableEnded) {
+      clientAbortController.abort();
+    }
   });
 
-  app.post('/api/chat', chatRateLimiter, async (req, res) => {
-    const rawMessage = req.body?.message;
-    const message = cleanPlainText(rawMessage, MAX_MESSAGE_CHARS + 1);
+  const message = sanitizeText(req.body?.message);
+  const history = Array.isArray(req.body?.history) ? req.body.history : [];
+  const profile = sanitizeProfile(req.body?.profile);
+  const queryCacheKey = message ? getQueryCacheKey(message, history, profile) : null;
 
+  const clientOpenRouterKey = req.headers['x-openrouter-key'] ? String(req.headers['x-openrouter-key']).trim() : '';
+  const clientOllamaKey = req.headers['x-ollama-key'] ? String(req.headers['x-ollama-key']).trim() : '';
+  const clientOllamaHost = req.headers['x-ollama-host'] ? String(req.headers['x-ollama-host']).trim() : '';
+  const clientFallbackHeader = req.headers['x-fallback-enabled'] ? String(req.headers['x-fallback-enabled']).trim() : '';
+  const fallbackEnabled = clientFallbackHeader ? clientFallbackHeader !== 'false' : undefined;
+
+  const currentFallbackRouter = fallbackRouter.withOverrides({
+    ...(clientOpenRouterKey ? { openrouterApiKey: clientOpenRouterKey } : {}),
+    ...(clientOllamaKey ? { ollamaApiKey: clientOllamaKey } : {}),
+    ...(clientOllamaHost ? { ollamaHost: clientOllamaHost } : {}),
+    ...(fallbackEnabled !== undefined ? { enabled: fallbackEnabled } : {}),
+  });
+
+  try {
     if (!message) {
       return res.status(400).json({ error: 'Message is required.' });
     }
+
     if (message.length > MAX_MESSAGE_CHARS) {
       return res.status(400).json({
         error: `Message must be ${MAX_MESSAGE_CHARS} characters or less.`,
       });
     }
 
-    let history;
-    try {
-      history = normalizeHistory(req.body?.history === undefined ? [] : req.body.history);
-    } catch (error) {
-      return res.status(400).json({ error: error.message });
-    }
-
-    const queryCacheKey = getQueryCacheKey(message, history);
-    const cachedResponse = queryCache.get(queryCacheKey);
+    const cachedResponse = queryCacheKey ? queryCache.get(queryCacheKey) : null;
     if (cachedResponse) {
+      console.log('Cache hit for query:', message.slice(0, 200));
       return writeCachedResponse(res, cachedResponse);
     }
 
-    if (appMissingEnvVars.length > 0 || !aiClient || !pineconeIndexClient) {
-      return res.status(503).json({ error: 'Chat service is not configured.' });
-    }
-    if (activeGenerations >= appConfig.maxConcurrentGenerations) {
-      res.setHeader('Retry-After', '5');
-      return res.status(429).json({ error: 'Chat service is busy. Please try again shortly.' });
+    if (missingEnvVars.length > 0 || !ai || !pineconeIndex) {
+      if (currentFallbackRouter.isConfigured()) {
+        console.log('Primary RAG unconfigured or missing env vars. Escalating directly to Fallback Router.');
+        return streamFallbackResponse(res, {
+          message,
+          history,
+          contextSnippets: '',
+          profile,
+          reason: 'primary_unconfigured',
+          clientAbortController,
+          queryCacheKey,
+          router: currentFallbackRouter,
+        });
+      }
+      return res.status(503).json({
+        error: `Server is missing required environment variables: ${missingEnvVars.join(', ')}.`,
+      });
     }
 
+    console.log('User query:', message.slice(0, 200));
+
     if (isAbusive(message)) {
-      const answer = 'Please keep the conversation respectful. I can help with Poornima-related questions.';
       setSseHeaders(res);
+      const answer = 'Please keep the conversation respectful and campus-related. How can I assist you with Poornima academic or administrative queries?';
       writeSse(res, 'sources', { sources: [] });
       writeSse(res, 'token', { text: answer });
       writeSse(res, 'done', { answer, sources: [] });
       return res.end();
     }
 
-    activeGenerations += 1;
-    const abortController = new AbortController();
-    let clientDisconnected = false;
-    let answerTimedOut = false;
-    let idleTimedOut = false;
-    let answerDeadline;
-    let idleTimeout;
-    let heartbeat;
-    let released = false;
-    const releaseGeneration = () => {
-      if (released) return;
-      released = true;
-      activeGenerations = Math.max(0, activeGenerations - 1);
-    };
-    const onResponseClose = () => {
-      if (!res.writableEnded) {
-        clientDisconnected = true;
-        abortController.abort(new Error('Client disconnected.'));
-      }
-    };
-
-    res.on('close', onResponseClose);
-
+    let queryVector;
     try {
-      const queryVector = await createQueryEmbedding(
-        message,
-        aiClient,
-        appConfig,
-        abortController.signal
-      );
-      if (!Array.isArray(queryVector) || queryVector.length === 0) {
-        return res.status(502).json({ error: 'Unable to prepare the request. Please try again.' });
+      queryVector = await createQueryEmbedding(message);
+    } catch (embedError) {
+      console.warn('Embedding generation failed:', embedError?.message || embedError);
+      if (currentFallbackRouter.isConfigured()) {
+        console.log('Embedding generation failed. Escalating to Fallback Router.');
+        return streamFallbackResponse(res, {
+          message,
+          history,
+          contextSnippets: '',
+          reason: 'embedding_error',
+          clientAbortController,
+          queryCacheKey,
+          router: currentFallbackRouter,
+        });
       }
-      if (abortController.signal.aborted) return;
+      return res.status(502).json({ error: 'Failed to generate an embedding for the query.' });
+    }
 
-      const queryResponse = await pineconeRequestSignalStorage.run(
-        abortController.signal,
-        () => pineconeIndexClient.query({
-          topK: appConfig.ragTopK,
-          vector: queryVector,
-          includeMetadata: true,
-        })
-      );
+    if (!Array.isArray(queryVector) || queryVector.length === 0) {
+      if (currentFallbackRouter.isConfigured()) {
+        console.log('Empty embedding vector received. Escalating to Fallback Router.');
+        return streamFallbackResponse(res, {
+          message,
+          history,
+          contextSnippets: '',
+          reason: 'embedding_empty',
+          clientAbortController,
+          queryCacheKey,
+          router: currentFallbackRouter,
+        });
+      }
+      return res.status(502).json({ error: 'Failed to generate an embedding for the query.' });
+    }
 
-      const matches = Array.isArray(queryResponse?.matches) ? queryResponse.matches : [];
-      const relevantMatches = filterRelevantMatches(matches, appConfig.ragMinScore);
-      const contextSnippets = buildContextSnippets(relevantMatches);
-      const historyContext = buildHistoryContext(history);
-      const sources = buildSources(relevantMatches);
-
-      const resetIdleTimeout = () => {
-        clearTimeout(idleTimeout);
-        idleTimeout = setTimeout(() => {
-          idleTimedOut = true;
-          abortController.abort(new Error('Answer stream idle timeout.'));
-        }, appConfig.answerIdleTimeoutMs);
-        idleTimeout.unref?.();
+    let queryResponse;
+    try {
+      // === RAG 2.0: Dual-Namespace Parallel Query ===
+      // Query both the handbook (__default__) and notices namespaces concurrently
+      const baseQueryOptions = {
+        topK: RAG_TOP_K,
+        vector: queryVector,
+        includeMetadata: true,
       };
-      answerDeadline = setTimeout(() => {
-        answerTimedOut = true;
-        abortController.abort(new Error('Answer deadline exceeded.'));
-      }, appConfig.answerTimeoutMs);
-      answerDeadline.unref?.();
-      resetIdleTimeout();
 
-      const stream = await startAnswerStream(
-        message,
-        historyContext,
-        contextSnippets,
-        aiClient,
-        appConfig,
-        abortController.signal
-      );
-      if (clientDisconnected || abortController.signal.aborted) return;
+      const handbookQuery = pineconeIndex.query({
+        ...baseQueryOptions,
+        ...(pineconeNamespace ? { namespace: pineconeNamespace } : {}),
+      });
 
-      setSseHeaders(res);
-      heartbeat = setInterval(() => {
-        if (!res.destroyed && !res.writableEnded) {
-          res.write(': heartbeat\n\n');
-          res.flush?.();
+      const noticesQuery = pineconeIndex.query({
+        ...baseQueryOptions,
+        namespace: NOTICES_NAMESPACE,
+      });
+
+      const [handbookResult, noticesResult] = await Promise.allSettled([handbookQuery, noticesQuery]);
+
+      // Merge matches from both namespaces
+      const handbookMatches = handbookResult.status === 'fulfilled'
+        ? (Array.isArray(handbookResult.value?.matches) ? handbookResult.value.matches : [])
+        : [];
+      const noticeMatches = noticesResult.status === 'fulfilled'
+        ? (Array.isArray(noticesResult.value?.matches) ? noticesResult.value.matches : [])
+        : [];
+
+      if (handbookResult.status === 'rejected') {
+        console.warn('Handbook namespace query failed:', handbookResult.reason?.message || handbookResult.reason);
+      }
+      if (noticesResult.status === 'rejected') {
+        console.warn('Notices namespace query failed:', noticesResult.reason?.message || noticesResult.reason);
+      }
+
+      // Tag notice matches with portal-notice IDs for frontend badge rendering
+      for (const match of noticeMatches) {
+        if (match?.id && !match.id.startsWith('portal-notice-')) {
+          match.id = `portal-notice-${match.id}`;
         }
-      }, 15000);
-      heartbeat.unref?.();
-      writeSse(res, 'sources', { sources });
+      }
 
-      let answer = '';
-      let answerLimitReached = false;
-      for await (const chunk of stream) {
-        if (abortController.signal.aborted || res.destroyed || res.writableEnded) break;
+      // Combine and sort by cosine similarity score (descending)
+      const allMatches = [...handbookMatches, ...noticeMatches]
+        .sort((a, b) => (b?.score || 0) - (a?.score || 0));
 
-        const remainingChars = MAX_ANSWER_CHARS - answer.length;
-        const text = cleanStreamText(chunk?.text, remainingChars);
-        if (!text) {
-          if (remainingChars <= 0) {
-            answerLimitReached = true;
-            break;
-          }
+      queryResponse = { matches: allMatches };
+
+      console.log(`RAG 2.0: Handbook=${handbookMatches.length} + Notices=${noticeMatches.length} → ${allMatches.length} total matches`);
+    } catch (pineconeError) {
+      console.warn('Pinecone query failed:', pineconeError?.message || pineconeError);
+      if (currentFallbackRouter.isConfigured()) {
+        console.log('Pinecone query failed. Escalating to Fallback Router.');
+        return streamFallbackResponse(res, {
+          message,
+          history,
+          contextSnippets: '',
+          profile,
+          reason: 'pinecone_error',
+          clientAbortController,
+          queryCacheKey,
+          router: currentFallbackRouter,
+        });
+      }
+      throw pineconeError;
+    }
+
+    const matches = Array.isArray(queryResponse?.matches) ? queryResponse.matches : [];
+    const relevantMatches = filterRelevantMatches(matches);
+    const contextSnippets = buildContextSnippets(relevantMatches);
+    const historyContext = buildHistoryContext(history, message);
+    const sources = buildSources(relevantMatches);
+
+    // Tier 2 #6: Grounding with official Academic Calendar & Exam Schedule
+    let calendarContext = '';
+    try {
+      calendarContext = await getCalendarContextForPrompt(message, profile?.college || 'ALL');
+    } catch (calErr) {
+      console.warn('Calendar context lookup failed:', calErr?.message || calErr);
+    }
+
+    const combinedSnippets = calendarContext
+      ? (contextSnippets ? `${calendarContext}\n\n${contextSnippets}` : calendarContext)
+      : contextSnippets;
+
+    if (calendarContext) {
+      sources.unshift({
+        id: 'live-academic-calendar',
+        title: 'Poornima Academic Calendar (Live Feed)',
+        url: 'https://calendar.google.com',
+        score: 0.95,
+        category: 'Academic Calendar',
+        college: profile?.college || 'ALL',
+      });
+    }
+
+    if (clientAbortController.signal.aborted) {
+      return;
+    }
+
+    // Trigger Condition: Knowledge gap (no relevant matches with score >= RAG_MIN_SCORE AND no calendar context)
+    if (relevantMatches.length === 0 && !calendarContext && currentFallbackRouter.isConfigured()) {
+      console.log(`Knowledge gap detected: 0 matches with score >= ${RAG_MIN_SCORE}. Escalating to Fallback Router.`);
+      return streamFallbackResponse(res, {
+        message,
+        history,
+        contextSnippets: '',
+        profile,
+        reason: 'knowledge_gap',
+        clientAbortController,
+        queryCacheKey,
+        initialSources: sources,
+        router: currentFallbackRouter,
+      });
+    }
+
+    setSseHeaders(res);
+    writeSse(res, 'sources', { sources });
+
+    let stream;
+    try {
+      stream = await startAnswerStream(message, historyContext, combinedSnippets, profile, clientAbortController.signal);
+    } catch (geminiError) {
+      console.warn('Primary Gemini stream start failed:', geminiError?.message || geminiError);
+      if (currentFallbackRouter.isConfigured()) {
+        console.log('Gemini start failed. Escalating to Fallback Router.');
+        return streamFallbackResponse(res, {
+          message,
+          history,
+          contextSnippets: combinedSnippets,
+          profile,
+          reason: isTransientError(geminiError) ? 'gemini_quota' : 'gemini_error',
+          clientAbortController,
+          queryCacheKey,
+          initialSources: sources,
+          router: currentFallbackRouter,
+        });
+      }
+      throw geminiError;
+    }
+
+    let answer = '';
+    let refusalBuffer = '';
+    let refusalChecked = false;
+    const REFUSAL_BUFFER_MAX = 220;
+
+    for await (const chunk of stream) {
+      if (clientAbortController.signal.aborted) {
+        break;
+      }
+
+      const text = typeof chunk?.text === 'string' ? chunk.text : '';
+      if (!text) {
+        continue;
+      }
+
+      answer += text;
+
+      // Check if primary response starts with a refusal phrase
+      if (!refusalChecked && currentFallbackRouter.isConfigured()) {
+        refusalBuffer += text;
+        if (refusalBuffer.length < REFUSAL_BUFFER_MAX) {
           continue;
         }
 
-        answer += text;
-        writeSse(res, 'token', { text });
-        resetIdleTimeout();
-        if (answer.length >= MAX_ANSWER_CHARS) {
-          answerLimitReached = true;
-          break;
+        if (isRefusalResponse(refusalBuffer)) {
+          console.log('Gemini output indicates refusal / lack of information. Escalating to Fallback Router.');
+          refusalChecked = true;
+          return streamFallbackResponse(res, {
+            message,
+            history,
+            contextSnippets: combinedSnippets,
+            profile,
+            reason: 'refusal',
+            clientAbortController,
+            queryCacheKey,
+            initialSources: sources,
+            router: currentFallbackRouter,
+          });
         }
-      }
 
-      if (clientDisconnected || res.destroyed || res.writableEnded) return;
-      if (answerTimedOut || idleTimedOut) {
-        writeSse(res, 'error', { error: 'The response took too long. Please try again.' });
-        return res.end();
+        refusalChecked = true;
+        writeSse(res, 'token', { text: refusalBuffer });
+      } else {
+        writeSse(res, 'token', { text });
       }
+    }
 
-      if (!answer) {
-        answer = 'I could not generate a response. Please try again.';
-        writeSse(res, 'token', { text: answer });
+    if (clientAbortController.signal.aborted) {
+      return;
+    }
+
+    // Check refusal on short responses (< REFUSAL_BUFFER_MAX)
+    if (!refusalChecked && refusalBuffer) {
+      if (currentFallbackRouter.isConfigured() && isRefusalResponse(refusalBuffer)) {
+        console.log('Short refusal response detected from Gemini. Escalating to Fallback Router.');
+        return streamFallbackResponse(res, {
+          message,
+          history,
+          contextSnippets,
+          profile,
+          reason: 'refusal',
+          clientAbortController,
+          queryCacheKey,
+          initialSources: sources,
+          router: currentFallbackRouter,
+        });
       }
-      storeCachedResponse(queryCacheKey, { answer, sources });
-      writeSse(res, 'done', { answer, sources, truncated: answerLimitReached });
-      res.end();
-    } catch (error) {
-      if (clientDisconnected || res.destroyed || res.writableEnded) return;
-      const upstreamFailure = answerTimedOut || idleTimedOut
-        ? { status: 504, message: 'The response took too long. Please try again.' }
-        : classifyUpstreamError(error);
-      console.error('Chat request failed', {
-        requestId: req.requestId,
-        errorName: error?.name || 'Error',
-        status: upstreamFailure.status,
+      writeSse(res, 'token', { text: refusalBuffer });
+    }
+
+    answer = answer.trim() || 'I could not generate a response. Please try again.';
+    queryCache.set(queryCacheKey, { answer, sources });
+    writeSse(res, 'done', { answer, sources });
+    res.end();
+  } catch (error) {
+    if (!res.headersSent && currentFallbackRouter.isConfigured()) {
+      console.warn('Recovering from error in /api/chat via Fallback Router:', error?.message || error);
+      return streamFallbackResponse(res, {
+        message,
+        history,
+        contextSnippets: '',
+        profile,
+        reason: 'chat_error',
+        clientAbortController,
+        queryCacheKey,
+        router: currentFallbackRouter,
       });
+    }
+
+    const apiKeyError = detectApiKeyError(error);
+    if (apiKeyError.isApiKeyError) {
+      logApiKeyError(apiKeyError.service, apiKeyError.reason, error);
       if (res.headersSent) {
         writeSse(res, 'error', {
-          error: upstreamFailure.message,
-          status: upstreamFailure.status,
-          retryAfter: upstreamFailure.retryAfter,
+          error: `API key error with ${apiKeyError.service}: ${apiKeyError.reason}. Please check server console for details.`,
         });
         return res.end();
       }
-      if (upstreamFailure.retryAfter) {
-        res.setHeader('Retry-After', String(upstreamFailure.retryAfter));
-      }
-      return res.status(upstreamFailure.status).json({ error: upstreamFailure.message });
-    } finally {
-      clearTimeout(answerDeadline);
-      clearTimeout(idleTimeout);
-      clearInterval(heartbeat);
-      res.off('close', onResponseClose);
-      releaseGeneration();
-    }
-  });
 
-  app.post('/api/feedback', feedbackRateLimiter, (req, res) => {
-    const rating = req.body?.rating;
-    const rawMessageId = req.body?.messageId;
-    const rawQuestion = req.body?.question;
-    const rawAnswer = req.body?.answer;
-    const rawSources = req.body?.sources;
-
-    if (typeof rating !== 'string' || !['up', 'down'].includes(rating)) {
-      return res.status(400).json({ error: 'Feedback rating must be "up" or "down".' });
-    }
-    if (rawMessageId !== undefined && (typeof rawMessageId !== 'string' || rawMessageId.length > 200)) {
-      return res.status(400).json({ error: 'Feedback message ID is invalid.' });
-    }
-    if (rawQuestion !== undefined && (typeof rawQuestion !== 'string' || rawQuestion.length > MAX_MESSAGE_CHARS)) {
-      return res.status(400).json({ error: `Feedback question must be ${MAX_MESSAGE_CHARS} characters or less.` });
-    }
-    if (rawAnswer !== undefined && (typeof rawAnswer !== 'string' || rawAnswer.length > MAX_ANSWER_CHARS)) {
-      return res.status(400).json({ error: `Feedback answer must be ${MAX_ANSWER_CHARS} characters or less.` });
-    }
-    if (rawSources !== undefined && (!Array.isArray(rawSources) || rawSources.length > 5)) {
-      return res.status(400).json({ error: 'Feedback sources must contain at most five entries.' });
-    }
-
-    const sources = [];
-    for (const source of rawSources || []) {
-      if (!source || typeof source !== 'object' || Array.isArray(source)) {
-        return res.status(400).json({ error: 'Feedback source metadata is invalid.' });
-      }
-      const fields = ['id', 'title', 'url'];
-      if (fields.some((field) => source[field] !== undefined &&
-        (typeof source[field] !== 'string' || source[field].length > 2048))) {
-        return res.status(400).json({ error: 'Feedback source metadata is too large.' });
-      }
-      let url = cleanPlainText(source.url, 2048);
-      try {
-        const parsedUrl = new URL(url);
-        url = ['http:', 'https:'].includes(parsedUrl.protocol) ? parsedUrl.toString() : '';
-      } catch (error) {
-        url = '';
-      }
-      sources.push({
-        id: cleanPlainText(source.id, 200),
-        title: cleanPlainText(source.title, 500),
-        url,
+      return res.status(401).json({
+        error: `API key error with ${apiKeyError.service}: ${apiKeyError.reason}. Please check server console for details.`,
       });
     }
-
-    const messageId = cleanPlainText(rawMessageId, 200);
-    const question = cleanPlainText(rawQuestion, MAX_MESSAGE_CHARS);
-    const answer = cleanPlainText(rawAnswer, MAX_ANSWER_CHARS);
-    console.info('Feedback received', {
-      requestId: req.requestId,
-      rating,
-      questionLength: question.length,
-      answerLength: answer.length,
-      sourceCount: sources.length,
-    });
-    res.json({ ok: true, messageId });
-  });
-
-  app.use((error, req, res, next) => {
+    console.error('Error in /api/chat:', error);
+    const userFacingError = error?.message ? `Failed to process query: ${error.message}` : 'Failed to process the query.';
     if (res.headersSent) {
+      writeSse(res, 'error', { error: userFacingError });
       return res.end();
     }
 
-    if (error?.type === 'entity.too.large') {
-      return res.status(413).json({ error: 'Request body is too large.' });
-    }
-    if (error?.type === 'entity.parse.failed') {
-      return res.status(400).json({ error: 'Request body must contain valid JSON.' });
-    }
+    res.status(500).json({ error: userFacingError });
+  }
+});
 
-    console.error('Unhandled request error', {
-      requestId: req.requestId,
-      errorName: error?.name || 'Error',
+const feedbackRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many feedback submissions. Please wait and try again.' },
+});
+
+app.post('/api/feedback', feedbackRateLimiter, (req, res) => {
+  const rating = sanitizeText(req.body?.rating);
+
+  if (!['up', 'down'].includes(rating)) {
+    return res.status(400).json({ error: 'Feedback rating must be "up" or "down".' });
+  }
+
+  const feedback = {
+    messageId: sanitizeText(req.body?.messageId),
+    rating,
+    question: sanitizeText(req.body?.question).slice(0, MAX_MESSAGE_CHARS),
+    answer: sanitizeText(req.body?.answer).slice(0, MAX_CONTEXT_CHARS),
+    sources: Array.isArray(req.body?.sources) ? req.body.sources.slice(0, 5) : [],
+    createdAt: new Date().toISOString(),
+  };
+
+  console.log('Chat feedback:', JSON.stringify(feedback));
+  res.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// RAG 2.0: Notice Sync Admin Endpoint & Runner
+// ---------------------------------------------------------------------------
+
+let noticeSyncRunning = false;
+
+/**
+ * Run the notice sync pipeline with shared AI/Pinecone clients.
+ * Returns the sync result object.
+ */
+async function runNoticeSync(options = {}) {
+  if (noticeSyncRunning) {
+    return { success: false, errors: ['A sync is already in progress.'] };
+  }
+
+  noticeSyncRunning = true;
+  try {
+    const result = await syncNotices({
+      ai: ai || undefined,
+      pineconeIndex: pineconeIndex || undefined,
+      ...options,
     });
-    return res.status(500).json({ error: 'Internal server error.' });
-  });
-
-  return app;
+    return result;
+  } finally {
+    noticeSyncRunning = false;
+  }
 }
 
-if (require.main === module) {
-  const app = createApp();
-  const server = app.listen(PORT, () => {
-    validateApiKeysAtStartup();
-    console.log(`Poornima Instructor server running on http://localhost:${PORT}`);
+/**
+ * POST /api/sync-notices — Admin-only endpoint to trigger notice ingestion.
+ * Protected by ADMIN_API_KEY header check.
+ */
+app.post('/api/sync-notices', async (req, res) => {
+  // Authenticate with admin API key
+  const providedKey = (req.headers['x-admin-key'] || req.headers['authorization']?.replace('Bearer ', '') || '').trim();
 
-    if (missingEnvVars.length > 0) {
-      console.warn(`Missing environment variables: ${missingEnvVars.join(', ')}`);
-    }
+  if (!adminApiKey) {
+    return res.status(503).json({
+      error: 'Admin API key not configured. Set ADMIN_API_KEY in environment.',
+    });
+  }
+
+  if (providedKey !== adminApiKey) {
+    return res.status(401).json({ error: 'Unauthorized. Invalid admin API key.' });
+  }
+
+  if (noticeSyncRunning) {
+    return res.status(409).json({ error: 'A notice sync is already in progress. Try again later.' });
+  }
+
+  const dryRun = req.body?.dryRun === true;
+
+  // Run sync asynchronously but respond with result
+  try {
+    console.log(`[NoticeSyncAPI] Manual sync triggered (dryRun=${dryRun})`);
+    const result = await runNoticeSync({ dryRun });
+    res.json({ ok: result.success, ...result });
+  } catch (err) {
+    console.error('[NoticeSyncAPI] Sync error:', err);
+    res.status(500).json({ error: 'Notice sync failed.', details: err.message });
+  }
+});
+
+async function gracefulShutdown(signal) {
+  console.log(`Received ${signal}. Closing HTTP server gracefully...`);
+  await mcpManager.closeAll().catch(() => {});
+  server.close(() => {
+    console.log('HTTP server closed. Exiting process.');
+    process.exit(0);
   });
-
-  server.on('error', (error) => {
-    if (error?.code === 'EADDRINUSE') {
-      console.error(`Port ${PORT} is already in use.`);
-      console.error('Stop the existing process or start with a different port, for example:');
-      console.error('  $env:PORT=3002; node server.js');
-      process.exit(1);
-    }
-
-    console.error('Server startup failed:', error?.name || 'Error');
+  setTimeout(() => {
+    console.error('Forced shutdown due to timeout.');
     process.exit(1);
-  });
+  }, 10000).unref();
 }
 
-module.exports = { createApp, createTimeoutFetch };
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+const server = app.listen(PORT, () => {
+  validateApiKeysAtStartup();
+  console.log(`Poornima Instructor server running on http://localhost:${PORT}`);
+
+  if (fallbackRouter.isConfigured()) {
+    console.log(`[FallbackRouter] Dual Cloud Core Active: ${fallbackRouter.getAvailableProviders().join(' | ')}`);
+  } else {
+    console.log('[FallbackRouter] Idle (No fallback keys configured in environment)');
+  }
+
+  mcpManager.initialize().then((status) => {
+    if (status.activeServersCount > 0) {
+      console.log(`[McpManager] Active MCP servers: ${status.activeServersCount}, Total MCP tools: ${status.totalToolsCount}`);
+    } else {
+      console.log('[McpManager] Ready (0 active external servers in mcp-servers.json)');
+    }
+  }).catch((err) => {
+    console.warn('[McpManager] Initialization warning:', err.message);
+  });
+
+  // RAG 2.0: Schedule automatic notice sync cron
+  if (noticeSyncEnabled && cron.validate(noticeSyncCron)) {
+    cron.schedule(noticeSyncCron, async () => {
+      console.log(`[NoticeSyncCron] Scheduled sync triggered at ${new Date().toISOString()}`);
+      try {
+        const result = await runNoticeSync();
+        console.log(`[NoticeSyncCron] Sync completed: ${result.vectorsUpserted || 0} vectors upserted, ${result.errors?.length || 0} warnings`);
+      } catch (err) {
+        console.error('[NoticeSyncCron] Sync failed:', err.message);
+      }
+    }, {
+      timezone: 'Asia/Kolkata',
+      noOverlap: true,
+    });
+    console.log(`[NoticeSyncCron] Scheduled: "${noticeSyncCron}" (Asia/Kolkata timezone)`);
+  } else if (!noticeSyncEnabled) {
+    console.log('[NoticeSyncCron] Disabled (NOTICE_SYNC_ENABLED=false)');
+  } else {
+    console.warn(`[NoticeSyncCron] Invalid cron expression: "${noticeSyncCron}". Skipping schedule.`);
+  }
+
+  if (missingEnvVars.length > 0) {
+    console.warn(`Missing environment variables: ${missingEnvVars.join(', ')}`);
+  }
+});
+
+server.on('error', (error) => {
+  if (error?.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use.`);
+    console.error('Stop the existing process or start with a different port, for example:');
+    console.error('  $env:PORT=3002; node server.js');
+    process.exit(1);
+  }
+
+  console.error('Server startup failed:', error);
+  process.exit(1);
+});
