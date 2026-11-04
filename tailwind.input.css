@@ -1,3 +1,31 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :focus-visible {
+    outline: 3px solid #67e8f9;
+    outline-offset: 3px;
+  }
+}
+
+@layer utilities {
+  .pt-safe-top {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  #click-spark-canvas {
+    display: none !important;
+  }
+}

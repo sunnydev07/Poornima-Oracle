@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Check server and client syntax
+        run: npm run check
+      - name: Run offline tests
+        run: npm test
+      - name: Verify generated CSS
+        run: npm run check:css
+      - name: Audit production dependencies
+        run: npm audit --omit=dev
