@@ -539,8 +539,12 @@ async function startAnswerStream(message, historyContext, contextSnippets, aiCli
 }
 
   app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
-});
+    res.sendFile(path.join(__dirname, 'index.html'));
+  });
+
+  app.get('/index.html', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+  });
 
   app.get('/styles.css', (req, res) => {
     res.sendFile(path.join(__dirname, 'styles.css'));
@@ -552,6 +556,18 @@ async function startAnswerStream(message, historyContext, contextSnippets, aiCli
 
   app.get('/chat-request-owner.js', (req, res) => {
     res.sendFile(path.join(__dirname, 'chat-request-owner.js'));
+  });
+
+  app.get('/manifest.json', (req, res) => {
+    res.sendFile(path.join(__dirname, 'manifest.json'));
+  });
+
+  app.get('/sw.js', (req, res) => {
+    res.sendFile(path.join(__dirname, 'sw.js'));
+  });
+
+  app.get('/poornima-oracle.svg', (req, res) => {
+    res.sendFile(path.join(__dirname, 'poornima-oracle.svg'));
   });
 
   app.get('/api/health', (req, res) => {

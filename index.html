@@ -4,7 +4,10 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#09090b" />
+    <meta name="theme-color" content="#050508" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest" href="./manifest.json" />
     <title>Poornima Oracle | RAG Agent</title>
 
     <!-- Tailwind CSS -->
@@ -16,13 +19,8 @@
     <!-- Markdown parsing and sanitization -->
     <script defer src="https://unpkg.com/marked@16.2.1/lib/marked.umd.js"></script>
     <script defer src="https://unpkg.com/dompurify@3.2.3/dist/purify.min.js"></script>
-    <script src="/chat-contract.js"></script>
-    <script src="/chat-request-owner.js"></script>
-
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="./chat-contract.js"></script>
+    <script src="./chat-request-owner.js"></script>
 
     <style>
         ::-webkit-scrollbar {
@@ -398,22 +396,22 @@
     </style>
 </head>
 
-<body class="bg-zinc-950 text-slate-200 font-sans overflow-hidden h-[100dvh] selection:bg-cyan-500/30 flex flex-col">
+<body class="bg-[#050508] text-slate-200 font-sans overflow-hidden h-[100dvh] selection:bg-cyan-500/30 flex flex-col">
 
     <canvas id="click-spark-canvas" aria-hidden="true"></canvas>
 
     <!-- API Setup Modal -->
-    <div id="apiModal" role="dialog" aria-modal="true" aria-labelledby="apiModalTitle"
+    <div id="apiModal" role="dialog" aria-modal="true" aria-label="Setup API" aria-labelledby="apiModalTitle"
         aria-describedby="apiModalDescription" tabindex="-1"
         class="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center hidden transition-opacity duration-300 px-4">
-        <div class="glass bg-zinc-900/90 rounded-2xl p-6 max-w-md w-full shadow-2xl transform transition-all scale-100">
+        <div class="liquid-glass liquid-glass-rim bg-zinc-900/75 rounded-[32px] p-6 max-w-md w-full shadow-2xl transform transition-all scale-100">
             <div class="flex items-center gap-3 mb-4">
                 <div class="p-2 bg-cyan-500/10 rounded-lg">
                     <i data-lucide="settings" class="w-5 h-5 text-cyan-400"></i>
                 </div>
                 <h2 id="apiModalTitle" class="text-xl font-bold text-white">Setup API</h2>
-                <button type="button" onclick="hideApiModal()" aria-label="Close API settings"
-                    class="ml-auto inline-flex h-11 w-11 items-center justify-center rounded-lg text-zinc-300 hover:bg-white/10 hover:text-white transition-colors">
+                <button id="apiModalClose" type="button" onclick="hideApiModal()" aria-label="Close API settings"
+                    class="liquid-icon-well ml-auto h-11 w-11 text-zinc-300 hover:text-white">
                     <i data-lucide="x" aria-hidden="true" class="w-5 h-5"></i>
                 </button>
             </div>
@@ -426,7 +424,7 @@
             <div class="flex justify-end gap-3">
                 <button type="button" onclick="skipSetup()"
                     class="min-h-11 px-4 py-2 text-sm text-zinc-300 hover:text-white transition-colors">Demo Mode</button>
-                <button type="button" onclick="saveApiEndpoint()"
+                <button type="button" onclick="saveApiEndpoint()" aria-label="Save"
                     class="min-h-11 px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-bold rounded-xl shadow-lg shadow-cyan-900/20 transition-all">Save</button>
             </div>
         </div>
@@ -441,7 +439,7 @@
 
         <!-- Sidebar -->
         <aside id="sidebar" aria-label="Conversation history" aria-hidden="true" inert tabindex="-1"
-            class="sidebar-transition fixed md:relative z-[70] h-full w-[85%] max-w-[300px] md:w-72 -translate-x-full md:translate-x-0 bg-black/80 backdrop-blur-3xl border-r border-white/10 flex flex-col shadow-2xl md:shadow-none">
+            class="sidebar-transition liquid-glass liquid-glass-rim fixed md:relative z-[70] h-full w-[85%] max-w-[300px] md:w-72 -translate-x-full md:translate-x-0 border-r border-white/10 flex flex-col shadow-2xl md:m-3 md:mr-0 md:h-[calc(100dvh-1.5rem)] md:rounded-[28px] md:shadow-none">
 
             <!-- Sidebar Header -->
             <div class="p-4 border-b border-white/10 flex items-center justify-between pt-safe-top h-16">
@@ -461,8 +459,8 @@
                 </button>
 
                 <!-- Mobile Close Button -->
-                <button type="button" onclick="closeMobileSidebar()" aria-label="Close conversation history"
-                    class="md:hidden min-h-11 min-w-11 inline-flex items-center justify-center hover:bg-white/10 rounded-lg text-zinc-300 transition active:scale-95">
+                <button id="closeSidebarButton" type="button" onclick="closeMobileSidebar()" aria-label="Close conversation history"
+                    class="liquid-icon-well md:hidden h-11 w-11 text-zinc-300 active:scale-95">
                     <i data-lucide="x" class="w-6 h-6"></i>
                 </button>
             </div>
@@ -470,12 +468,22 @@
             <!-- New Chat Button -->
             <div class="p-4 pb-2">
                 <button id="newChatButton" type="button" onclick="startNewChat()" aria-label="Start a new chat"
-                    class="sidebar-item w-full flex items-center gap-3 p-3.5 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/20 rounded-xl text-white transition-all group hover:shadow-[0_0_10px_rgba(255,255,255,0.1)] active:scale-95 touch-manipulation">
-                    <i data-lucide="plus"
-                        class="sidebar-icon w-5 h-5 text-cyan-400 group-hover:rotate-90 transition-transform shrink-0"></i>
+                    class="sidebar-item liquid-capsule w-full flex items-center gap-3 p-2 text-white transition-all group active:scale-95 touch-manipulation">
+                    <span class="liquid-icon-well h-10 w-10 shrink-0 text-cyan-300"><i data-lucide="plus"
+                        class="sidebar-icon w-5 h-5 group-hover:rotate-90 transition-transform"></i></span>
                     <span class="sidebar-text text-sm font-medium whitespace-nowrap">New Chat</span>
                 </button>
             </div>
+
+            <section id="sidebarCampusSwitcher" class="px-4 pb-4 lg:hidden" aria-labelledby="sidebarCampusLabel">
+                <h3 id="sidebarCampusLabel" class="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">Campus focus</h3>
+                <div class="segmented-pill-bar w-full justify-between" role="group" aria-label="Quick campus selection">
+                    <button type="button" class="campus-pill" data-campus-pill="ALL" aria-pressed="true" onclick="setQuickCampus('ALL')">All</button>
+                    <button type="button" class="campus-pill" data-campus-pill="PU" aria-pressed="false" onclick="setQuickCampus('PU')">PU</button>
+                    <button type="button" class="campus-pill" data-campus-pill="PCE" aria-pressed="false" onclick="setQuickCampus('PCE')">PCE</button>
+                    <button type="button" class="campus-pill" data-campus-pill="PIET" aria-pressed="false" onclick="setQuickCampus('PIET')">PIET</button>
+                </div>
+            </section>
 
             <!-- Conversations List (dynamically populated by JS) -->
             <div class="flex-1 overflow-y-auto p-2 scrollbar-thin" id="conversationsList" role="list" aria-label="Saved conversations">
@@ -495,30 +503,51 @@
         <main id="mainChat" class="flex-1 flex flex-col w-full relative bg-transparent overflow-hidden">
 
             <!-- Header -->
-            <header
-                class="h-16 border-b border-white/5 flex items-center justify-between px-4 md:px-8 bg-zinc-950/80 backdrop-blur-md z-30 sticky top-0">
-                <div class="flex items-center gap-3">
+            <header id="mainHeader"
+                class="liquid-capsule relative z-30 m-2 flex h-14 shrink-0 items-center justify-between gap-2 px-2 sm:px-3 md:mx-3 md:mt-3 md:px-4">
+                <div class="flex min-w-0 items-center gap-2 sm:gap-3">
                     <!-- Mobile Menu Toggle -->
-                    <button type="button" onclick="openMobileSidebar()" aria-label="Open conversation history"
+                    <button id="mobileMenuButton" type="button" onclick="openMobileSidebar()" aria-label="Open conversation history"
                         aria-controls="sidebar" aria-expanded="false"
-                        class="md:hidden min-h-11 min-w-11 inline-flex items-center justify-center text-zinc-200 bg-white/5 rounded-lg border border-white/10 active:bg-white/10 transition-colors">
+                        class="liquid-icon-well md:hidden h-11 w-11 shrink-0 text-zinc-100">
                         <i data-lucide="menu" class="w-6 h-6"></i>
                     </button>
-
-                    <h1
-                        class="text-lg md:text-2xl font-bold tracking-tighter bg-gradient-to-r from-white via-slate-300 to-gray-500 bg-clip-text text-transparent truncate">
-                        Poornima Oracle
-                    </h1>
+                    <span class="spatial-status-dot hidden shrink-0 sm:block" aria-hidden="true"></span>
+                    <div class="min-w-0">
+                        <h1 class="truncate text-base font-semibold tracking-tight text-white sm:text-lg">
+                            Poornima Oracle
+                        </h1>
+                        <p class="hidden text-[10px] font-medium tracking-[0.12em] text-zinc-400 sm:block">CAMPUS INTELLIGENCE</p>
+                    </div>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="segmented-pill-bar hidden lg:inline-flex" role="group" aria-label="Quick campus selection">
+                    <button type="button" class="campus-pill" data-campus-pill="ALL" aria-pressed="true" onclick="setQuickCampus('ALL')">All</button>
+                    <button type="button" class="campus-pill" data-campus-pill="PU" aria-pressed="false" onclick="setQuickCampus('PU')">PU</button>
+                    <button type="button" class="campus-pill" data-campus-pill="PCE" aria-pressed="false" onclick="setQuickCampus('PCE')">PCE</button>
+                    <button type="button" class="campus-pill" data-campus-pill="PIET" aria-pressed="false" onclick="setQuickCampus('PIET')">PIET</button>
+                </div>
+                <div class="flex shrink-0 items-center gap-1 sm:gap-2">
+                    <button id="profilePillButton" type="button" onclick="focusCampusSwitcher()" aria-label="Choose your campus"
+                        class="liquid-capsule hidden min-h-11 items-center gap-2 px-3 text-xs font-semibold text-zinc-100 xl:inline-flex">
+                        <i data-lucide="graduation-cap" aria-hidden="true" class="h-4 w-4 text-cyan-300"></i>
+                        <span data-campus-label>All campuses</span>
+                    </button>
                     <button id="autoReadToggle" onclick="toggleAutoRead()" aria-label="Toggle auto-read AI answers"
                         aria-pressed="false"
-                        class="auto-read-toggle min-h-11 border border-white/10 bg-white/[0.03] px-3 py-2 hover:bg-white/10 rounded-lg text-zinc-300 hover:text-white transition flex items-center gap-2 active:scale-95 text-xs font-medium whitespace-nowrap">
+                        class="auto-read-toggle liquid-capsule hidden min-h-11 items-center gap-2 px-3 py-2 text-xs font-medium text-zinc-300 transition active:scale-95 sm:flex">
                         <i data-lucide="headphones" class="w-4 h-4"></i>
-                        <span>Auto-read</span>
+                        <span class="hidden lg:inline">Auto-read</span>
+                    </button>
+                    <button id="installAppButton" type="button" onclick="installApp()" aria-label="Install Poornima Oracle"
+                        class="liquid-icon-well hidden h-11 w-11 text-zinc-300 hover:text-white" title="Install app" hidden>
+                        <i data-lucide="download" aria-hidden="true" class="h-5 w-5"></i>
+                    </button>
+                    <button id="exportChatButton" type="button" onclick="exportChatMarkdown()" aria-label="Export conversation"
+                        class="liquid-icon-well h-11 w-11 text-zinc-300 hover:text-white" title="Export conversation">
+                        <i data-lucide="download-cloud" aria-hidden="true" class="h-5 w-5"></i>
                     </button>
                     <button type="button" onclick="showApiModal()" aria-label="Open API settings"
-                        class="min-h-11 min-w-11 inline-flex items-center justify-center hover:bg-white/10 rounded-lg text-zinc-300 hover:text-white transition active:scale-95">
+                        class="liquid-icon-well h-11 w-11 text-zinc-300 hover:text-white">
                         <i data-lucide="settings" class="w-6 h-6"></i>
                     </button>
                 </div>
@@ -527,6 +556,8 @@
             <!-- Chat Area -->
             <div class="relative flex-1 overflow-hidden">
                 <div class="chat-ambient" aria-hidden="true">
+                    <div class="spatial-halo-bloom"></div>
+                    <div class="spatial-orbital-ring"></div>
                     <div class="chat-orb chat-orb-cyan"></div>
                     <div class="chat-orb chat-orb-blue"></div>
                     <div class="chat-orb chat-orb-purple"></div>
@@ -544,25 +575,25 @@
             </div>
 
             <!-- Input Area -->
-            <div class="p-3 md:p-6 bg-gradient-to-t from-zinc-950 via-zinc-950 to-transparent z-20 safe-pb">
+            <div class="z-20 bg-gradient-to-t from-[#050508] via-[#050508]/95 to-transparent p-3 safe-pb md:p-6">
                 <div class="max-w-3xl mx-auto relative group">
                     <div
                         class="aurora-glow absolute -inset-1 bg-gradient-to-r from-cyan-500/20 via-purple-500/10 to-blue-500/20 rounded-2xl blur-md opacity-50 group-hover:opacity-75 transition-opacity duration-500 hidden md:block">
                     </div>
-                    <div class="glass-input rounded-2xl flex items-end p-1.5 md:p-2 relative z-10">
+                    <div id="composerDock" class="liquid-glass liquid-glass-rim flex items-end rounded-[28px] p-1.5 pl-3 shadow-2xl md:p-2 md:pl-4 relative z-10">
                         <label for="messageInput" class="sr-only">Message</label>
-                        <textarea id="messageInput" maxlength="2000" aria-describedby="messageInputHelp"
+                        <textarea id="messageInput" maxlength="2000" aria-label="Message" aria-describedby="messageInputHelp"
                             class="w-full bg-transparent border-none text-white placeholder-zinc-500 px-3 md:px-4 py-3 focus:ring-0 resize-none max-h-32 md:max-h-48 overflow-y-auto text-base"
                             rows="1" placeholder="Ask here..." onkeydown="handleKeyPress(event)"
                             oninput="adjustTextareaHeight(this)"></textarea>
                         <span id="messageInputHelp" class="sr-only">Ask a Poornima-related question. Press Enter to send or Shift plus Enter for a new line.</span>
                         <button id="micButton" type="button" onclick="toggleSpeechRecognition()" aria-label="Start voice input"
                             aria-pressed="false" title="Start voice input"
-                            class="p-3 rounded-xl border border-white/10 bg-white/[0.03] text-zinc-400 hover:bg-white/10 hover:text-white transition-all active:scale-95 mb-0.5 mr-2 flex items-center justify-center shrink-0">
+                            class="liquid-icon-well mb-0.5 mr-2 h-11 w-11 shrink-0 text-zinc-300 hover:text-white">
                             <i data-lucide="mic" class="w-5 h-5"></i>
                         </button>
                         <button id="sendButton" type="button" onclick="sendMessage({ allowSpeech: true })" aria-label="Send message"
-                            class="p-3 rounded-xl bg-white text-black hover:bg-zinc-200 transition-all active:scale-95 shadow-[0_0_15px_rgba(255,255,255,0.1)] mb-0.5 mr-0.5 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shrink-0">
+                            class="liquid-icon-well mb-0.5 mr-0.5 h-11 w-11 shrink-0 bg-gradient-to-b from-white to-cyan-100 text-zinc-950 shadow-[0_0_22px_rgba(50,173,230,0.38)] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50">
                             <i data-lucide="send" class="w-5 h-5"></i>
                         </button>
                     </div>
@@ -579,19 +610,23 @@
     <template id="welcomeTemplate">
         <div id="welcomeScreen"
             class="h-full flex flex-col items-center justify-center max-w-4xl mx-auto animate-fade-in py-8">
+            <div class="liquid-capsule mb-4 inline-flex items-center gap-2 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-cyan-100">
+                <span class="spatial-status-dot" aria-hidden="true"></span>
+                Campus assistant online
+            </div>
             <div
-                class="w-20 h-20 md:w-24 md:h-24 rounded-full border-2 border-white/10 mb-6 shadow-[0_0_30px_rgba(6,182,212,0.2)] shrink-0">
+                class="liquid-glass liquid-glass-rim w-20 h-20 md:w-24 md:h-24 rounded-full mb-5 shadow-[0_0_30px_rgba(6,182,212,0.2)] shrink-0 overflow-hidden p-1">
                 <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQm0aT7k5O09y2256AMvDppRfJq7pIeV9d0KA&s"
-                    alt="Oracle" class="oracle-avatar-breathe w-full h-full object-cover">
+                    alt="Poornima Oracle" class="oracle-avatar-breathe w-full h-full rounded-full object-cover">
             </div>
             <h1
-                class="text-2xl md:text-5xl font-bold text-center mb-4 bg-gradient-to-r from-cyan-300 via-white to-cyan-300 bg-clip-text text-transparent drop-shadow-sm px-2">
-                "Hey there! Got questions?"
+                class="text-3xl md:text-5xl font-light tracking-tight text-center mb-3 bg-gradient-to-r from-cyan-200 via-white to-violet-200 bg-clip-text text-transparent drop-shadow-sm px-2">
+                Hello, Scholar
             </h1>
-           <p class="text-zinc-400 text-center  md:mb-3 max-w-lg text-base md:text-lg font-light px-4">
-                You've officially come to the right place. Ask me anything about campus life.
+           <p class="text-zinc-300 text-center md:mb-3 max-w-lg text-base md:text-lg font-light px-4">
+                Your calm, citation-first guide to campus life, notices, and academic dates.
             </p>
-            <p class="text-cyan-400 text-center md:mb-12 max-w-lg text-base md:text-xs font-light px-4">
+            <p class="text-cyan-200 text-center md:mb-12 max-w-lg text-base md:text-xs font-light px-4">
                 Use Demo Mode if you want to try the UI without a backend endpoint.
             </p>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 w-full max-w-3xl px-4"
@@ -616,6 +651,28 @@
         const HISTORY_STORAGE_KEY = 'poornimaOracleConversationHistory';
         const DEMO_MODE_STORAGE_KEY = 'poornimaOracleDemoMode';
         const AUTO_READ_STORAGE_KEY = 'poornimaOracleAutoRead';
+        const CAMPUS_STORAGE_KEY = 'poornimaOracleCampus';
+        let deferredInstallPrompt = null;
+
+        window.addEventListener('beforeinstallprompt', (event) => {
+            event.preventDefault();
+            deferredInstallPrompt = event;
+            const installButton = document.getElementById('installAppButton');
+            if (installButton) {
+                installButton.hidden = false;
+                installButton.classList.remove('hidden');
+            }
+        });
+
+        window.addEventListener('appinstalled', () => {
+            deferredInstallPrompt = null;
+            const installButton = document.getElementById('installAppButton');
+            if (installButton) {
+                installButton.hidden = true;
+                installButton.classList.add('hidden');
+            }
+            announceChatStatus('Poornima Oracle was installed.');
+        });
         const PROMPT_COLOR_CLASSES = {
             cyan: {
                 border: 'hover:border-cyan-500/30',
@@ -1122,8 +1179,119 @@
             if (status) status.textContent = message;
         }
 
+        function getQuickCampus() {
+            const campus = localStorage.getItem(CAMPUS_STORAGE_KEY) || 'ALL';
+            return ['ALL', 'PU', 'PCE', 'PIET'].includes(campus) ? campus : 'ALL';
+        }
+
+        function updateQuickCampusPills(campus = getQuickCampus()) {
+            const selectedCampus = ['ALL', 'PU', 'PCE', 'PIET'].includes(campus) ? campus : 'ALL';
+            document.querySelectorAll('[data-campus-pill]').forEach((button) => {
+                const selected = button.dataset.campusPill === selectedCampus;
+                button.setAttribute('aria-pressed', String(selected));
+            });
+            document.querySelectorAll('[data-campus-label]').forEach((label) => {
+                label.textContent = selectedCampus === 'ALL' ? 'All campuses' : selectedCampus;
+            });
+        }
+
+        function setQuickCampus(campus) {
+            const selectedCampus = ['ALL', 'PU', 'PCE', 'PIET'].includes(campus) ? campus : 'ALL';
+            localStorage.setItem(CAMPUS_STORAGE_KEY, selectedCampus);
+            updateQuickCampusPills(selectedCampus);
+            announceChatStatus(`${selectedCampus === 'ALL' ? 'All campuses' : selectedCampus} selected for this session.`);
+        }
+
+        function focusCampusSwitcher() {
+            const visiblePills = [...document.querySelectorAll('[data-campus-pill]')].filter((button) => (
+                button.getClientRects().length > 0 && !button.closest('#sidebar')?.inert
+            ));
+            const selected = visiblePills.find((button) => button.getAttribute('aria-pressed') === 'true');
+            if (selected) {
+                selected.focus();
+                return;
+            }
+            visiblePills[0]?.focus();
+        }
+
+        function buildConversationExport(conversation) {
+            if (!conversation || !Array.isArray(conversation.messages) || conversation.messages.length === 0) {
+                return '';
+            }
+
+            const title = String(conversation.title || 'Poornima Oracle conversation')
+                .replace(/[\r\n]+/g, ' ')
+                .trim();
+            const lines = [`# ${title}`, ''];
+
+            for (const message of conversation.messages) {
+                if (!message || (message.role !== 'user' && message.role !== 'assistant')) continue;
+                const speaker = message.role === 'user' ? 'You' : 'Poornima Oracle';
+                lines.push(`## ${speaker}`, '', String(message.content || '').trim(), '');
+
+                if (message.role !== 'assistant' || !Array.isArray(message.sources)) continue;
+                const sources = message.sources.map((source) => {
+                    let safeUrl = '';
+                    try {
+                        const parsedUrl = new URL(String(source?.url || source?.link || ''));
+                        if (['http:', 'https:'].includes(parsedUrl.protocol)) {
+                            safeUrl = parsedUrl.toString().replace(/[()]/g, (character) => (
+                                character === '(' ? '%28' : '%29'
+                            ));
+                        }
+                    } catch (error) {
+                        safeUrl = '';
+                    }
+                    if (!safeUrl) return '';
+                    const label = String(source?.title || source?.name || 'Source')
+                        .replace(/[\r\n]+/g, ' ')
+                        .replace(/[\\[\]]/g, '\\$&');
+                    return `- [${label}](${safeUrl})`;
+                }).filter(Boolean);
+                if (sources.length > 0) lines.push('Sources:', ...sources, '');
+            }
+
+            return `${lines.join('\n').trim()}\n`;
+        }
+
+        function exportChatMarkdown() {
+            const markdown = buildConversationExport(activeConversation);
+            if (!markdown) {
+                announceChatStatus('There are no messages to export yet.');
+                return;
+            }
+
+            const title = String(activeConversation.title || 'conversation');
+            const filename = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'conversation';
+            const fileUrl = URL.createObjectURL(new Blob([markdown], { type: 'text/markdown;charset=utf-8' }));
+            const downloadLink = document.createElement('a');
+            downloadLink.href = fileUrl;
+            downloadLink.download = `poornima-${filename}.md`;
+            downloadLink.click();
+            window.setTimeout(() => URL.revokeObjectURL(fileUrl), 0);
+            announceChatStatus('Conversation exported as Markdown.');
+        }
+
+        async function installApp() {
+            if (!deferredInstallPrompt) return;
+            const installButton = document.getElementById('installAppButton');
+            deferredInstallPrompt.prompt();
+            await deferredInstallPrompt.userChoice;
+            deferredInstallPrompt = null;
+            if (installButton) {
+                installButton.hidden = true;
+                installButton.classList.add('hidden');
+            }
+        }
+
         window.addEventListener('load', async () => {
             updateSidebarAccessibility();
+            updateQuickCampusPills();
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('./sw.js').catch((error) => {
+                    console.warn('[Oracle] Offline shell is unavailable:', error?.name || 'Error');
+                });
+            }
             apiEndpoint = ensureApiEndpoint();
             document.getElementById('apiEndpoint').value = apiEndpoint;
 
@@ -1750,30 +1918,54 @@
             }, 1100);
         }
 
-        function getAssistantQuestion(messageId) {
-            const messageIndex = conversationHistory.findIndex(item => item.id === messageId && item.role === 'assistant');
-            if (messageIndex === -1) return '';
+        function buildRegenerationState(messages, messageId) {
+            const currentMessages = Array.isArray(messages) ? messages : [];
+            const assistantIndex = currentMessages.findIndex((message) => (
+                message?.id === messageId && message?.role === 'assistant'
+            ));
+            if (assistantIndex === -1) return null;
 
-            const message = conversationHistory[messageIndex];
-            if (message.question) return message.question;
+            const assistantMessage = currentMessages[assistantIndex];
+            const previousMessage = currentMessages[assistantIndex - 1];
+            const pairedUserIndex = previousMessage?.role === 'user' ? assistantIndex - 1 : -1;
+            const question = String(assistantMessage.question || previousMessage?.content || '').trim();
+            if (!question) return null;
 
-            for (let index = messageIndex - 1; index >= 0; index--) {
-                if (conversationHistory[index]?.role === 'user') {
-                    return conversationHistory[index].content || '';
-                }
-            }
-
-            return '';
+            const removedIndexes = new Set([assistantIndex, pairedUserIndex].filter((index) => index >= 0));
+            return {
+                question,
+                messages: currentMessages.filter((_, index) => !removedIndexes.has(index)),
+                removedIds: [...removedIndexes]
+                    .sort((first, second) => first - second)
+                    .map((index) => currentMessages[index]?.id)
+                    .filter(Boolean),
+            };
         }
 
         async function regenerateAssistantMessage(messageId) {
             if (isLoading) return;
 
-            const question = getAssistantQuestion(messageId).trim();
-            if (!question) return;
+            const regeneration = buildRegenerationState(conversationHistory, messageId);
+            if (!regeneration) return;
 
             stopCurrentSpeech();
-            await sendMessage({ allowSpeech: true, message: question });
+            if (activeConversation) {
+                activeConversation = {
+                    ...activeConversation,
+                    messages: regeneration.messages,
+                    updatedAt: Date.now(),
+                };
+                conversationHistory = activeConversation.messages;
+                saveConversationHistory(activeConversation);
+            } else {
+                conversationHistory = regeneration.messages;
+            }
+
+            regeneration.removedIds.forEach((removedId) => {
+                document.querySelector(`[data-message-id="${CSS.escape(removedId)}"]`)?.remove();
+            });
+            refreshIcons();
+            await sendMessage({ allowSpeech: true, message: regeneration.question });
         }
 
         // --- Chat Logic ---
@@ -1801,7 +1993,7 @@
             messageCount++;
             isLoading = true;
             chatContainer.setAttribute('aria-busy', 'true');
-            announceChatStatus('Sending your message to Poornima Oracle.');
+            announceChatStatus('Generating response...');
 
             const sendBtn = document.getElementById('sendButton');
             sendBtn.disabled = true;
@@ -1843,9 +2035,9 @@
                     responsePayload = await callGeminiAPI(message, {
                         signal: request.controller.signal,
                         conversationMessages: requestConversation.messages,
-                        onSources: () => {
+                        onSources: (sources) => {
                             if (!ownsActiveChatRequest(request)) return;
-                            assistantShell.sourcesEl.innerHTML = '';
+                            assistantShell.sourcesEl.innerHTML = renderSourceChips(sources);
                         },
                         onToken: (answer) => {
                             if (!ownsActiveChatRequest(request)) return;
@@ -1860,7 +2052,7 @@
                 const responseText = String(responsePayload.answer || '');
                 const sources = Array.isArray(responsePayload.sources) ? responsePayload.sources : [];
                 streamRenderer.flush(responseText);
-                assistantShell.sourcesEl.innerHTML = '';
+                assistantShell.sourcesEl.innerHTML = renderSourceChips(sources);
                 assistantShell.feedbackEl.innerHTML = renderFeedbackControls(assistantId);
                 requestConversation.messages.push({
                     id: assistantId,
@@ -2086,19 +2278,22 @@
             const promptValue = escapeHtml(JSON.stringify(data.prompt));
 
             return `
-                <div onclick="sendSuggestion(${promptValue})"
+                <button type="button" onclick="sendSuggestion(${promptValue})"
                     data-suggestion-card
-                    class="glass p-4 rounded-xl cursor-pointer hover:bg-white/5 ${colorClasses.border} transition-all group active:scale-98 touch-manipulation">
-                    <div class="flex items-start gap-3">
-                        <div class="p-2 ${colorClasses.bg} rounded-lg ${colorClasses.text} ${colorClasses.hoverText} shrink-0">
+                    class="liquid-glass liquid-glass-rim min-h-36 rounded-[24px] p-4 text-left ${colorClasses.border} transition-all group active:scale-[0.98] touch-manipulation hover:-translate-y-0.5 hover:shadow-[0_20px_42px_-22px_rgba(50,173,230,0.6)]">
+                    <div class="flex h-full flex-col justify-between gap-5">
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="liquid-icon-well h-10 w-10 ${colorClasses.bg} ${colorClasses.text} ${colorClasses.hoverText} shrink-0">
                             <i data-lucide="${escapeHtml(data.icon)}" class="w-5 h-5"></i>
+                            </div>
+                            <span class="rounded-full border border-white/10 bg-white/[0.06] px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-300">Ask</span>
                         </div>
                         <div>
-                            <h3 class="font-semibold text-zinc-200 text-sm">${escapeHtml(data.title)}</h3>
-                            <p class="text-xs text-zinc-500 mt-1">${escapeHtml(data.description)}</p>
+                            <h3 class="font-semibold text-zinc-100 text-sm">${escapeHtml(data.title)}</h3>
+                            <p class="text-xs text-zinc-400 mt-1.5 leading-relaxed">${escapeHtml(data.description)}</p>
                         </div>
                     </div>
-                </div>`;
+                </button>`;
         }
 
         function createMessageId(prefix) {
@@ -2126,10 +2321,10 @@
             const chatContainer = document.getElementById('chatContainer');
             const userMsgHTML = `
                 <div class="flex justify-end mb-6 animate-slide-in" data-message-id="${escapeHtml(message.id || '')}">
-                    <div class="max-w-[85%] md:max-w-[70%] bg-white text-black p-3 md:p-4 rounded-2xl rounded-br-sm shadow-lg">
+                    <div class="spatial-user-bubble max-w-[85%] rounded-[24px] rounded-br-md p-3 md:max-w-[70%] md:p-4">
                         <p class="text-sm md:text-base leading-relaxed font-medium">${escapeHtml(message.content)}</p>
                     </div>
-                    <div class="w-8 h-8 rounded-lg bg-white flex items-center justify-center ml-2 md:ml-3 mt-auto mb-1 shadow-md shrink-0">
+                    <div class="liquid-icon-well ml-2 mb-1 mt-auto h-8 w-8 shrink-0 bg-white text-zinc-950 md:ml-3">
                         <i data-lucide="user" class="w-5 h-5 text-black"></i>
                     </div>
                 </div>`;
@@ -2140,11 +2335,11 @@
             const chatContainer = document.getElementById('chatContainer');
             const aiMsgHTML = `
                 <div class="flex justify-start mb-6 animate-slide-in" data-message-id="${escapeHtml(messageId)}">
-                    <div class="w-8 h-8 rounded-lg bg-zinc-800 border border-white/10 flex items-center justify-center mr-2 md:mr-3 mt-auto mb-1 shrink-0">
+                    <div class="liquid-icon-well mr-2 mb-1 mt-auto h-8 w-8 shrink-0 text-cyan-300 md:mr-3">
                         <i data-lucide="bot" class="w-5 h-5 text-cyan-400"></i>
                     </div>
                     <div class="group max-w-[85%] md:max-w-[70%]">
-                        <div class="bg-zinc-800/80 border border-white/5 text-zinc-200 p-3 md:p-4 rounded-2xl rounded-bl-sm shadow-sm text-sm md:text-base">
+                        <div class="spatial-assistant-card liquid-glass liquid-glass-rim rounded-[26px] rounded-bl-md p-4 text-sm md:p-5 md:text-base">
                             <div class="ai-markdown" data-ai-content>
                                 <div class="flex items-center h-6"><div class="typing-shimmer h-1.5 w-24 rounded-full"></div></div>
                             </div>
@@ -2169,7 +2364,7 @@
             const messageId = message.id || createMessageId('assistant');
             const shell = renderAssistantShell(messageId);
             shell.contentEl.innerHTML = renderMarkdown(message.content);
-            shell.sourcesEl.innerHTML = '';
+            shell.sourcesEl.innerHTML = renderSourceChips(message.sources);
             shell.feedbackEl.innerHTML = renderFeedbackControls(messageId, message.feedback);
             shell.actionEl.innerHTML = renderAssistantActionBar(messageId);
             refreshIcons();
@@ -2179,17 +2374,17 @@
             const safeMessageId = escapeHtml(messageId);
 
             return `
-                <div class="assistant-action-bar flex flex-wrap opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition mt-2 ml-1 items-center gap-2 text-xs text-zinc-300">
-                    <button type="button" class="relative inline-flex min-h-11 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-2 font-medium hover:bg-white/10 hover:text-white transition" aria-label="Copy response" onclick="copyAssistantMessage('${safeMessageId}', this)">
+                <div class="assistant-action-bar liquid-capsule mt-2 ml-1 inline-flex flex-wrap items-center gap-1 p-1 text-xs text-zinc-300 opacity-100 transition md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+                    <button type="button" class="relative inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 py-2 font-medium hover:bg-white/10 hover:text-white transition" aria-label="Copy response" onclick="copyAssistantMessage('${safeMessageId}', this)">
                         <i data-lucide="copy" aria-hidden="true" class="w-4 h-4"></i>
                         <span>Copy</span>
                         <span class="copy-tooltip" data-copy-tooltip aria-live="polite">Copied!</span>
                     </button>
-                    <button type="button" class="speech-button inline-flex min-h-11 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-2 font-medium hover:bg-white/10 hover:text-white transition" aria-label="Read response aloud" aria-pressed="false" data-speech-for="${safeMessageId}" data-speech-label="true" onclick="readAssistantMessage('${safeMessageId}')">
+                    <button type="button" class="speech-button inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 py-2 font-medium hover:bg-white/10 hover:text-white transition" aria-label="Read response aloud" aria-pressed="false" data-speech-for="${safeMessageId}" data-speech-label="true" onclick="readAssistantMessage('${safeMessageId}')">
                         <i data-lucide="volume-2" aria-hidden="true" class="w-4 h-4"></i>
                         <span>Read Aloud</span>
                     </button>
-                    <button type="button" class="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-2 font-medium hover:bg-white/10 hover:text-white transition" aria-label="Regenerate response" onclick="regenerateAssistantMessage('${safeMessageId}')">
+                    <button type="button" class="inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 py-2 font-medium hover:bg-white/10 hover:text-white transition" aria-label="Regenerate response" onclick="regenerateAssistantMessage('${safeMessageId}')">
                         <i data-lucide="refresh-cw" aria-hidden="true" class="w-4 h-4"></i>
                         <span>Regenerate</span>
                     </button>
@@ -2235,7 +2430,31 @@
         }
 
         function renderSourceChips(sources) {
-            return '';
+            if (!Array.isArray(sources) || sources.length === 0) return '';
+
+            const chips = sources.slice(0, 5).map((source) => {
+                const safeUrl = getSafeUrl(source?.url || source?.link || '');
+                if (!safeUrl) return '';
+
+                const sourceType = String(source?.type || source?.provider || '').toLowerCase();
+                const isNotice = sourceType.includes('notice') || sourceType.includes('circular');
+                const isMcp = sourceType.includes('mcp');
+                const isHandbook = sourceType.includes('handbook') || sourceType.includes('document');
+                const typeClass = isNotice
+                    ? 'citation-notice'
+                    : (isMcp ? 'citation-mcp' : (isHandbook ? 'citation-handbook' : 'citation-web'));
+                const icon = isNotice ? 'bell-ring' : (isMcp ? 'blocks' : (isHandbook ? 'book-open' : 'globe-2'));
+                const label = String(source?.title || source?.name || (isNotice ? 'Live notice' : 'Source')).trim();
+
+                return `<a class="citation-chip ${typeClass}" href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer">
+                    <i data-lucide="${icon}" aria-hidden="true" class="h-3.5 w-3.5 shrink-0"></i>
+                    <span>${escapeHtml(label)}</span>
+                </a>`;
+            }).filter(Boolean);
+
+            return chips.length
+                ? `<div class="mt-3 flex flex-wrap gap-2" aria-label="Sources">${chips.join('')}</div>`
+                : '';
         }
 
         function getSafeUrl(value) {

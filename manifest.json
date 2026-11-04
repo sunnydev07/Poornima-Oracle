@@ -1,0 +1,20 @@
+{
+  "id": "./",
+  "name": "Poornima Oracle",
+  "short_name": "Oracle",
+  "description": "A citation-first assistant for the Poornima campus community.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#050508",
+  "theme_color": "#050508",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "./poornima-oracle.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

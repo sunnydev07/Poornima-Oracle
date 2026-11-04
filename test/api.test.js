@@ -337,6 +337,21 @@ test('CORS only allows configured browser origins', async (t) => {
   assert.equal(allowedResponse.headers.get('access-control-allow-origin'), 'https://portal.example.test');
 });
 
+test('static app assets are served explicitly without exposing backend files', async (t) => {
+  const app = createApp({ ai: null, pineconeIndex: null, missingEnvVars: [] });
+  const baseUrl = await startTestServer(app, t);
+
+  for (const assetPath of ['/index.html', '/manifest.json', '/sw.js', '/poornima-oracle.svg']) {
+    const response = await fetch(`${baseUrl}${assetPath}`);
+    assert.equal(response.status, 200, `${assetPath} should be available to the PWA`);
+  }
+
+  for (const privatePath of ['/server.js', '/.env', '/package.json']) {
+    const response = await fetch(`${baseUrl}${privatePath}`);
+    assert.equal(response.status, 404, `${privatePath} must remain private`);
+  }
+});
+
 test('answer deadline remains active through slow stream consumption', async (t) => {
   let providerAborted = false;
   let markProviderAbort;
@@ -367,7 +382,7 @@ test('answer deadline remains active through slow stream consumption', async (t)
   assert.equal(events.some((event) => event.event === 'done'), false);
 });
 
-test('provider throttling returns 429 and generic upstream 400 is not called an API-key error', async (t) => {
+test('provider throttling and API-key errors are classified separately from generic upstream errors', async (t) => {
   let generateCalls = 0;
   const mockAi = {
     models: {
@@ -375,8 +390,9 @@ test('provider throttling returns 429 and generic upstream 400 is not called an 
       async generateContentStream({ contents }) {
         generateCalls += 1;
         const prompt = contents[0].parts[0].text;
-        const error = new Error(prompt.includes('quota case') ? 'quota exceeded' : 'bad request');
-        error.status = prompt.includes('quota case') ? 429 : 400;
+        const error = new Error(prompt.includes('quota case') ? 'quota exceeded' :
+          prompt.includes('key case') ? 'invalid credential' : 'bad request');
+        error.status = prompt.includes('quota case') ? 429 : prompt.includes('key case') ? 403 : 400;
         throw error;
       },
     },
@@ -408,7 +424,17 @@ test('provider throttling returns 429 and generic upstream 400 is not called an 
   assert.deepEqual(await genericResponse.json(), {
     error: 'The assistant service could not process this request.',
   });
-  assert.equal(generateCalls, 2);
+
+  const keyResponse = await fetch(`${baseUrl}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: 'key case', history: [] }),
+  });
+  assert.equal(keyResponse.status, 502);
+  assert.deepEqual(await keyResponse.json(), {
+    error: 'The assistant service could not authorize this request.',
+  });
+  assert.equal(generateCalls, 3);
 });
 
 test('upstream abort is classified as timeout and is not retried', async (t) => {

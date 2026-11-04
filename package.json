@@ -7,7 +7,7 @@
   },
   "scripts": {
     "build:css": "tailwindcss -i ./tailwind.input.css -o ./styles.css --minify",
-    "check": "node --check server.js && node --check chat-contract.js && node --check chat-request-owner.js && npm run check:client",
+    "check": "node --check server.js && node --check sw.js && node --check chat-contract.js && node --check chat-request-owner.js && npm run check:client",
     "check:client": "node scripts/check-client.js",
     "check:css": "npm run build:css && git diff --exit-code -- styles.css",
     "dev": "node server.js",
