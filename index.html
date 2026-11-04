@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#09090b" />
     <title>Poornima Oracle | RAG Agent</title>
 
@@ -11,11 +11,13 @@
     <link rel="stylesheet" href="styles.css">
 
     <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <script defer src="https://unpkg.com/lucide@0.468.0"></script>
 
     <!-- Markdown parsing and sanitization -->
-    <script src="https://unpkg.com/marked@16.2.1/lib/marked.umd.js"></script>
-    <script src="https://unpkg.com/dompurify@3.2.3/dist/purify.min.js"></script>
+    <script defer src="https://unpkg.com/marked@16.2.1/lib/marked.umd.js"></script>
+    <script defer src="https://unpkg.com/dompurify@3.2.3/dist/purify.min.js"></script>
+    <script src="/chat-contract.js"></script>
+    <script src="/chat-request-owner.js"></script>
 
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -398,27 +400,34 @@
 
 <body class="bg-zinc-950 text-slate-200 font-sans overflow-hidden h-[100dvh] selection:bg-cyan-500/30 flex flex-col">
 
-    <canvas id="click-spark-canvas"></canvas>
+    <canvas id="click-spark-canvas" aria-hidden="true"></canvas>
 
     <!-- API Setup Modal -->
-    <div id="apiModal"
+    <div id="apiModal" role="dialog" aria-modal="true" aria-labelledby="apiModalTitle"
+        aria-describedby="apiModalDescription" tabindex="-1"
         class="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center hidden transition-opacity duration-300 px-4">
         <div class="glass bg-zinc-900/90 rounded-2xl p-6 max-w-md w-full shadow-2xl transform transition-all scale-100">
             <div class="flex items-center gap-3 mb-4">
                 <div class="p-2 bg-cyan-500/10 rounded-lg">
                     <i data-lucide="settings" class="w-5 h-5 text-cyan-400"></i>
                 </div>
-                <h2 class="text-xl font-bold text-white">Setup API</h2>
+                <h2 id="apiModalTitle" class="text-xl font-bold text-white">Setup API</h2>
+                <button type="button" onclick="hideApiModal()" aria-label="Close API settings"
+                    class="ml-auto inline-flex h-11 w-11 items-center justify-center rounded-lg text-zinc-300 hover:bg-white/10 hover:text-white transition-colors">
+                    <i data-lucide="x" aria-hidden="true" class="w-5 h-5"></i>
+                </button>
             </div>
-            <p class="text-zinc-400 text-sm mb-4">Configure your backend API endpoint.</p>
-            <input type="text" id="apiEndpoint"
-                class="w-full glass-input px-4 py-3 rounded-xl text-white placeholder-zinc-600 focus:outline-none focus:border-cyan-500/50 transition-all mb-4 text-sm"
+            <p id="apiModalDescription" class="text-zinc-300 text-sm mb-4">Configure your backend API endpoint.</p>
+            <label for="apiEndpoint" class="block text-sm font-medium text-zinc-200 mb-2">Backend API endpoint</label>
+            <input type="url" id="apiEndpoint" autocomplete="url" aria-describedby="apiEndpointHelp"
+                class="w-full glass-input px-4 py-3 rounded-xl text-white placeholder-zinc-500 focus:border-cyan-500/50 transition-all mb-1 text-sm"
                 placeholder="https://poornima-oracle.onrender.com/api/chat" />
+            <p id="apiEndpointHelp" class="text-xs text-zinc-400 mb-4">Enter the HTTPS endpoint for your Poornima Oracle backend.</p>
             <div class="flex justify-end gap-3">
-                <button onclick="skipSetup()"
-                    class="px-4 py-2 text-sm text-zinc-400 hover:text-white transition-colors">Demo Mode</button>
-                <button onclick="saveApiEndpoint()"
-                    class="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-bold rounded-xl shadow-lg shadow-cyan-900/20 transition-all">Save</button>
+                <button type="button" onclick="skipSetup()"
+                    class="min-h-11 px-4 py-2 text-sm text-zinc-300 hover:text-white transition-colors">Demo Mode</button>
+                <button type="button" onclick="saveApiEndpoint()"
+                    class="min-h-11 px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-bold rounded-xl shadow-lg shadow-cyan-900/20 transition-all">Save</button>
             </div>
         </div>
     </div>
@@ -431,7 +440,7 @@
     <div class="flex h-full relative z-10 w-full">
 
         <!-- Sidebar -->
-        <aside id="sidebar"
+        <aside id="sidebar" aria-label="Conversation history" aria-hidden="true" inert tabindex="-1"
             class="sidebar-transition fixed md:relative z-[70] h-full w-[85%] max-w-[300px] md:w-72 -translate-x-full md:translate-x-0 bg-black/80 backdrop-blur-3xl border-r border-white/10 flex flex-col shadow-2xl md:shadow-none">
 
             <!-- Sidebar Header -->
@@ -446,21 +455,21 @@
                 </div>
 
                 <!-- Desktop Collapse Button -->
-                <button onclick="toggleSidebarDesktop()"
-                    class="hidden md:flex p-1.5 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition">
+                <button id="collapseSidebarButton" type="button" onclick="toggleSidebarDesktop()" aria-label="Collapse conversation history" aria-expanded="true"
+                    class="hidden md:inline-flex min-h-11 min-w-11 items-center justify-center hover:bg-white/10 rounded-lg text-zinc-300 hover:text-white transition">
                     <i id="collapseIcon" data-lucide="chevron-left" class="w-5 h-5 transition-transform"></i>
                 </button>
 
                 <!-- Mobile Close Button -->
-                <button onclick="closeMobileSidebar()"
-                    class="md:hidden p-2 hover:bg-white/10 rounded-lg text-zinc-400 transition active:scale-95">
+                <button type="button" onclick="closeMobileSidebar()" aria-label="Close conversation history"
+                    class="md:hidden min-h-11 min-w-11 inline-flex items-center justify-center hover:bg-white/10 rounded-lg text-zinc-300 transition active:scale-95">
                     <i data-lucide="x" class="w-6 h-6"></i>
                 </button>
             </div>
 
             <!-- New Chat Button -->
             <div class="p-4 pb-2">
-                <button onclick="startNewChat()"
+                <button id="newChatButton" type="button" onclick="startNewChat()" aria-label="Start a new chat"
                     class="sidebar-item w-full flex items-center gap-3 p-3.5 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/20 rounded-xl text-white transition-all group hover:shadow-[0_0_10px_rgba(255,255,255,0.1)] active:scale-95 touch-manipulation">
                     <i data-lucide="plus"
                         class="sidebar-icon w-5 h-5 text-cyan-400 group-hover:rotate-90 transition-transform shrink-0"></i>
@@ -469,7 +478,7 @@
             </div>
 
             <!-- Conversations List (dynamically populated by JS) -->
-            <div class="flex-1 overflow-y-auto p-2 scrollbar-thin" id="conversationsList">
+            <div class="flex-1 overflow-y-auto p-2 scrollbar-thin" id="conversationsList" role="list" aria-label="Saved conversations">
                 <div id="convListEmpty" class="px-3 py-10 text-center hidden">
                     <i data-lucide="message-square-dashed" class="w-7 h-7 text-zinc-700 mx-auto mb-2"></i>
                     <p class="text-[10px] text-zinc-600 uppercase tracking-wider">No conversations yet</p>
@@ -483,15 +492,16 @@
         </aside>
 
         <!-- Main Content -->
-        <main class="flex-1 flex flex-col w-full relative bg-transparent overflow-hidden">
+        <main id="mainChat" class="flex-1 flex flex-col w-full relative bg-transparent overflow-hidden">
 
             <!-- Header -->
             <header
                 class="h-16 border-b border-white/5 flex items-center justify-between px-4 md:px-8 bg-zinc-950/80 backdrop-blur-md z-30 sticky top-0">
                 <div class="flex items-center gap-3">
                     <!-- Mobile Menu Toggle -->
-                    <button onclick="openMobileSidebar()"
-                        class="md:hidden p-2 text-zinc-300 bg-white/5 rounded-lg border border-white/10 active:bg-white/10 transition-colors">
+                    <button type="button" onclick="openMobileSidebar()" aria-label="Open conversation history"
+                        aria-controls="sidebar" aria-expanded="false"
+                        class="md:hidden min-h-11 min-w-11 inline-flex items-center justify-center text-zinc-200 bg-white/5 rounded-lg border border-white/10 active:bg-white/10 transition-colors">
                         <i data-lucide="menu" class="w-6 h-6"></i>
                     </button>
 
@@ -503,12 +513,12 @@
                 <div class="flex items-center gap-2">
                     <button id="autoReadToggle" onclick="toggleAutoRead()" aria-label="Toggle auto-read AI answers"
                         aria-pressed="false"
-                        class="auto-read-toggle border border-white/10 bg-white/[0.03] px-3 py-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition flex items-center gap-2 active:scale-95 text-xs font-medium whitespace-nowrap">
+                        class="auto-read-toggle min-h-11 border border-white/10 bg-white/[0.03] px-3 py-2 hover:bg-white/10 rounded-lg text-zinc-300 hover:text-white transition flex items-center gap-2 active:scale-95 text-xs font-medium whitespace-nowrap">
                         <i data-lucide="headphones" class="w-4 h-4"></i>
                         <span>Auto-read</span>
                     </button>
-                    <button onclick="showApiModal()" aria-label="Open API settings"
-                        class="p-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition flex items-center gap-2 active:scale-95">
+                    <button type="button" onclick="showApiModal()" aria-label="Open API settings"
+                        class="min-h-11 min-w-11 inline-flex items-center justify-center hover:bg-white/10 rounded-lg text-zinc-300 hover:text-white transition active:scale-95">
                         <i data-lucide="settings" class="w-6 h-6"></i>
                     </button>
                 </div>
@@ -521,12 +531,14 @@
                     <div class="chat-orb chat-orb-blue"></div>
                     <div class="chat-orb chat-orb-purple"></div>
                 </div>
-                <div class="relative z-10 h-full overflow-y-auto p-4 md:p-6 scrollbar-thin" id="chatContainer">
+                <div class="relative z-10 h-full overflow-y-auto p-4 md:p-6 scrollbar-thin" id="chatContainer"
+                    role="log" aria-label="Conversation messages" aria-live="off" aria-busy="false" tabindex="0">
                     <!-- Content injected via JS -->
                 </div>
+                <div id="chatStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
                 <div class="chat-bottom-fade" aria-hidden="true"></div>
                 <button id="scrollToBottomButton" type="button" onclick="scrollChatToBottom()"
-                    class="hidden absolute bottom-4 right-4 z-30 inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-zinc-950/85 px-4 py-2 text-xs font-semibold text-cyan-100 shadow-lg shadow-cyan-950/30 backdrop-blur-md hover:bg-cyan-500/10 hover:text-white transition active:scale-95">
+                    class="hidden absolute bottom-4 right-4 z-30 inline-flex min-h-11 items-center gap-2 rounded-full border border-cyan-400/30 bg-zinc-950/85 px-4 py-2 text-xs font-semibold text-cyan-100 shadow-lg shadow-cyan-950/30 backdrop-blur-md hover:bg-cyan-500/10 hover:text-white transition active:scale-95">
                     New message+
                 </button>
             </div>
@@ -538,22 +550,24 @@
                         class="aurora-glow absolute -inset-1 bg-gradient-to-r from-cyan-500/20 via-purple-500/10 to-blue-500/20 rounded-2xl blur-md opacity-50 group-hover:opacity-75 transition-opacity duration-500 hidden md:block">
                     </div>
                     <div class="glass-input rounded-2xl flex items-end p-1.5 md:p-2 relative z-10">
-                        <textarea id="messageInput"
+                        <label for="messageInput" class="sr-only">Message</label>
+                        <textarea id="messageInput" maxlength="2000" aria-describedby="messageInputHelp"
                             class="w-full bg-transparent border-none text-white placeholder-zinc-500 px-3 md:px-4 py-3 focus:ring-0 resize-none max-h-32 md:max-h-48 overflow-y-auto text-base"
                             rows="1" placeholder="Ask here..." onkeydown="handleKeyPress(event)"
                             oninput="adjustTextareaHeight(this)"></textarea>
-                        <button id="micButton" onclick="toggleSpeechRecognition()" aria-label="Start voice input"
+                        <span id="messageInputHelp" class="sr-only">Ask a Poornima-related question. Press Enter to send or Shift plus Enter for a new line.</span>
+                        <button id="micButton" type="button" onclick="toggleSpeechRecognition()" aria-label="Start voice input"
                             aria-pressed="false" title="Start voice input"
                             class="p-3 rounded-xl border border-white/10 bg-white/[0.03] text-zinc-400 hover:bg-white/10 hover:text-white transition-all active:scale-95 mb-0.5 mr-2 flex items-center justify-center shrink-0">
                             <i data-lucide="mic" class="w-5 h-5"></i>
                         </button>
-                        <button id="sendButton" onclick="sendMessage({ allowSpeech: true })"
+                        <button id="sendButton" type="button" onclick="sendMessage({ allowSpeech: true })" aria-label="Send message"
                             class="p-3 rounded-xl bg-white text-black hover:bg-zinc-200 transition-all active:scale-95 shadow-[0_0_15px_rgba(255,255,255,0.1)] mb-0.5 mr-0.5 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shrink-0">
                             <i data-lucide="send" class="w-5 h-5"></i>
                         </button>
                     </div>
                 </div>
-                <p class="text-center text-[10px] text-zinc-600 mt-2 md:mt-3 uppercase tracking-widest hidden md:block">
+                <p class="text-center text-[10px] text-zinc-400 mt-2 md:mt-3 uppercase tracking-widest hidden md:block">
                     Poornima Oracle can make mistakes. Check important info.<br>
                     © 2025 Sunnydev.All rights reserved.
                 </p>
@@ -919,29 +933,32 @@
             const fragment = document.createDocumentFragment();
             convs.forEach(conv => {
                 const isActive = conv.id === activeId;
+                const title = conv.title || 'New Chat';
                 const item = document.createElement('div');
+                item.setAttribute('role', 'listitem');
                 item.setAttribute('data-conv-item', conv.id);
-                item.className = [
-                    'sidebar-item group flex items-center gap-2.5 p-3 rounded-xl cursor-pointer',
-                    'border transition-all mb-1 touch-manipulation',
-                    isActive
-                        ? 'bg-zinc-800/70 border-cyan-500/20 text-white shadow-[0_0_12px_rgba(34,211,238,0.08)]'
-                        : 'border-transparent hover:bg-white/5 hover:border-white/10 text-zinc-400 hover:text-zinc-200',
-                ].join(' ');
+                item.className = 'group flex items-center gap-1 rounded-xl mb-1';
 
                 const safeId = escapeHtml(conv.id);
+                const safeTitle = escapeHtml(title);
                 item.innerHTML = `
-                    <i data-lucide="${isActive ? 'message-square-text' : 'message-square'}"
-                        class="sidebar-icon w-4 h-4 ${isActive ? 'text-cyan-400' : 'text-zinc-600 group-hover:text-zinc-400'} shrink-0 transition-colors"></i>
-                    <span class="sidebar-text text-xs truncate flex-1 ${isActive ? 'font-medium text-white' : 'font-light'}">${escapeHtml(conv.title || 'New Chat')}</span>
-                    <button class="sidebar-text opacity-0 group-hover:opacity-100 p-1 rounded-lg
-                                   text-zinc-600 hover:text-rose-400 hover:bg-rose-500/10 transition-all shrink-0"
-                            title="Delete conversation"
-                            onclick="event.stopPropagation(); handleDeleteConversation('${safeId}')">
-                        <i data-lucide="trash-2" class="w-3 h-3"></i>
+                    <button type="button" data-switch-conversation aria-current="${isActive ? 'page' : 'false'}"
+                        aria-label="Open conversation: ${safeTitle}"
+                        class="sidebar-item min-h-11 min-w-0 flex-1 flex items-center gap-2.5 p-3 rounded-xl border transition-all touch-manipulation ${isActive
+                            ? 'bg-zinc-800/70 border-cyan-500/20 text-white shadow-[0_0_12px_rgba(34,211,238,0.08)]'
+                            : 'border-transparent hover:bg-white/5 hover:border-white/10 text-zinc-300 hover:text-white'}">
+                        <i data-lucide="${isActive ? 'message-square-text' : 'message-square'}" aria-hidden="true"
+                            class="sidebar-icon w-4 h-4 ${isActive ? 'text-cyan-400' : 'text-zinc-400'} shrink-0 transition-colors"></i>
+                        <span class="sidebar-text text-xs truncate flex-1 ${isActive ? 'font-medium text-white' : 'font-light'}">${safeTitle}</span>
+                    </button>
+                    <button type="button" class="sidebar-text sidebar-delete-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-zinc-300 hover:text-rose-300 hover:bg-rose-500/10 transition-all md:opacity-0 md:group-hover:opacity-100 focus-visible:opacity-100"
+                        aria-label="Delete conversation: ${safeTitle}" title="Delete conversation"
+                        onclick="event.stopPropagation(); handleDeleteConversation('${safeId}')">
+                        <i data-lucide="trash-2" aria-hidden="true" class="w-4 h-4"></i>
                     </button>`;
 
-                item.addEventListener('click', () => handleSwitchConversation(conv.id));
+                item.querySelector('[data-switch-conversation]')
+                    .addEventListener('click', () => handleSwitchConversation(conv.id));
                 fragment.appendChild(item);
             });
 
@@ -954,7 +971,9 @@
                 if (window.innerWidth < 768) closeMobileSidebar();
                 return;
             }
-            if (isLoading) return;
+            const selectionGeneration = ++conversationSelectionGeneration;
+            isConversationTransitioning = true;
+            cancelActiveChatRequest();
 
             // Save current conversation before switching
             if (activeConversation && activeConversation.messages.length > 0) {
@@ -963,9 +982,17 @@
 
             try {
                 const conv = await store.getConversation(id);
-                if (!conv) return;
+                if (!conv || selectionGeneration !== conversationSelectionGeneration) {
+                    if (selectionGeneration === conversationSelectionGeneration) {
+                        isConversationTransitioning = false;
+                    }
+                    return;
+                }
 
+                cancelActiveChatRequest();
                 activeConversation = conv;
+                isConversationTransitioning = false;
+                announceChatStatus('Conversation opened.');
                 conversationHistory = activeConversation.messages;
                 localStorage.setItem('activeConversationId', id);
                 chatStarted = conv.messages.length > 0;
@@ -1001,21 +1028,33 @@
                 refreshIcons();
                 if (window.innerWidth < 768) closeMobileSidebar();
                 else input.focus();
-            } catch (e) { 
-                console.error('[Oracle] Failed to switch conversation:', e);
+            } catch (e) {
+                if (selectionGeneration === conversationSelectionGeneration) {
+                    isConversationTransitioning = false;
+                }
+                console.error('[Oracle] Failed to switch conversation:', e?.name || 'Error');
             }
         }
 
         async function handleDeleteConversation(id) {
+            const deletingActiveConversation = activeConversation?.id === id;
+            if (!window.confirm('Delete this conversation permanently?')) return;
+            if (deletingActiveConversation) {
+                conversationSelectionGeneration += 1;
+                isConversationTransitioning = true;
+                cancelActiveChatRequest();
+            }
+
             try {
                 await store.deleteConversation(id);
-                if (activeConversation && activeConversation.id === id) {
-                    await startNewChat();
+                if (deletingActiveConversation) {
+                    await startNewChat({ saveCurrent: false });
                 } else {
                     await renderSidebarConversations();
                 }
             } catch (e) {
-                console.error('[Oracle] Failed to delete conversation:', e);
+                if (deletingActiveConversation) isConversationTransitioning = false;
+                console.error('[Oracle] Failed to delete conversation:', e?.name || 'Error');
             }
         }
 
@@ -1054,6 +1093,9 @@
         let demoMode = localStorage.getItem(DEMO_MODE_STORAGE_KEY) === 'true';
         let apiEndpoint = ensureApiEndpoint();
         let isLoading = false;
+        const chatRequestOwner = new window.PoornimaRequestOwner();
+        let conversationSelectionGeneration = 0;
+        let isConversationTransitioning = false;
         let isSidebarCollapsed = false;
         let speechRecognition = null;
         let isListening = false;
@@ -1065,7 +1107,23 @@
         let store = null;                   // ConversationStore instance
         let activeConversation = null;      // Currently active conversation object
 
+        function cancelActiveChatRequest() {
+            chatRequestOwner.cancel();
+            isLoading = false;
+            document.getElementById('chatContainer')?.setAttribute('aria-busy', 'false');
+        }
+
+        function ownsActiveChatRequest(request) {
+            return chatRequestOwner.owns(request, activeConversation?.id);
+        }
+
+        function announceChatStatus(message) {
+            const status = document.getElementById('chatStatus');
+            if (status) status.textContent = message;
+        }
+
         window.addEventListener('load', async () => {
+            updateSidebarAccessibility();
             apiEndpoint = ensureApiEndpoint();
             document.getElementById('apiEndpoint').value = apiEndpoint;
 
@@ -1129,55 +1187,112 @@
             initializeScrollAffordance();
             refreshIcons();
 
-            // Focus input on desktop only
-            if (window.innerWidth > 768) {
-                document.getElementById('messageInput').focus();
-            }
-
             new ClickSpark();
-
-            // Prevent double tap zoom on iOS
-            document.addEventListener('dblclick', e => e.preventDefault(), { passive: false });
         });
 
         // --- Sidebar Logic ---
+        function updateSidebarAccessibility() {
+            const sidebar = document.getElementById('sidebar');
+            const main = document.getElementById('mainChat');
+            const closedOnMobile = window.innerWidth < 768 && sidebar.classList.contains('-translate-x-full');
+            const drawerOpenOnMobile = window.innerWidth < 768 && !closedOnMobile;
+            sidebar.inert = closedOnMobile;
+            sidebar.setAttribute('aria-hidden', String(closedOnMobile));
+            main.inert = drawerOpenOnMobile;
+            main.setAttribute('aria-hidden', String(drawerOpenOnMobile));
+            document.querySelector('[aria-label="Open conversation history"]')
+                ?.setAttribute('aria-expanded', String(drawerOpenOnMobile));
+        }
+
+        function handleMobileSidebarKeydown(event) {
+            const sidebar = document.getElementById('sidebar');
+            if (window.innerWidth >= 768 || sidebar.inert) return;
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                closeMobileSidebar();
+                return;
+            }
+            if (event.key !== 'Tab') return;
+
+            const focusable = [...sidebar.querySelectorAll(
+                'button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+            )].filter((element) => element.getClientRects().length > 0);
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (!first || !last) {
+                event.preventDefault();
+                sidebar.focus();
+            } else if (!sidebar.contains(document.activeElement)) {
+                event.preventDefault();
+                (event.shiftKey ? last : first).focus();
+            } else if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        }
+
+        document.addEventListener('keydown', handleMobileSidebarKeydown);
+        window.addEventListener('resize', updateSidebarAccessibility);
+
         function openMobileSidebar() {
             const sidebar = document.getElementById('sidebar');
             const overlay = document.getElementById('sidebarOverlay');
+            const menuButton = document.querySelector('[aria-label="Open conversation history"]');
             sidebar.classList.remove('-translate-x-full');
             overlay.classList.remove('hidden');
+            updateSidebarAccessibility();
+            menuButton?.setAttribute('aria-expanded', 'true');
+            if (window.innerWidth < 768) document.getElementById('newChatButton').focus();
         }
 
         function closeMobileSidebar() {
             const sidebar = document.getElementById('sidebar');
             const overlay = document.getElementById('sidebarOverlay');
+            const menuButton = document.querySelector('[aria-label="Open conversation history"]');
             sidebar.classList.add('-translate-x-full');
             overlay.classList.add('hidden');
+            updateSidebarAccessibility();
+            menuButton?.setAttribute('aria-expanded', 'false');
+            if (window.innerWidth < 768) menuButton?.focus();
         }
 
         function toggleSidebarDesktop() {
             const sidebar = document.getElementById('sidebar');
             const collapseIcon = document.getElementById('collapseIcon');
+            const collapseButton = document.getElementById('collapseSidebarButton');
             isSidebarCollapsed = !isSidebarCollapsed;
 
             if (isSidebarCollapsed) {
                 sidebar.classList.add('collapsed', 'w-20');
                 sidebar.classList.remove('w-72', 'md:w-72');
-                // Need to override tailwind class for width
                 sidebar.style.width = '80px';
                 collapseIcon.classList.add('rotate-180');
+                collapseButton.setAttribute('aria-label', 'Expand conversation history');
+                collapseButton.setAttribute('aria-expanded', 'false');
             } else {
                 sidebar.classList.remove('collapsed', 'w-20');
                 sidebar.classList.add('w-72');
-                sidebar.style.width = ''; // Reset inline style to use class
+                sidebar.style.width = '';
                 collapseIcon.classList.remove('rotate-180');
+                collapseButton.setAttribute('aria-label', 'Collapse conversation history');
+                collapseButton.setAttribute('aria-expanded', 'true');
             }
         }
 
-        async function startNewChat() {
-            // 1. Save current conversation if it has messages
-            if (activeConversation && activeConversation.messages.length > 0) {
-                try { await store.saveConversation(activeConversation); } catch (e) { console.warn(e); }
+        async function startNewChat(options = {}) {
+            conversationSelectionGeneration += 1;
+            isConversationTransitioning = true;
+            cancelActiveChatRequest();
+            const previousConversation = activeConversation;
+
+            // Save the old conversation without delaying the selection change.
+            if (options.saveCurrent !== false && previousConversation && previousConversation.messages.length > 0) {
+                store.saveConversation(previousConversation).catch((error) => {
+                    console.warn('[Oracle] Save failed:', error?.name || 'Error');
+                });
             }
 
             // 2. Stop any in-flight activity
@@ -1196,6 +1311,8 @@
                 updatedAt: Date.now(),
                 messages: [],
             };
+            isConversationTransitioning = false;
+            announceChatStatus('New conversation started.');
             conversationHistory = activeConversation.messages;
             localStorage.setItem('activeConversationId', activeConversation.id);
 
@@ -1263,25 +1380,84 @@
         }
 
         // --- Standard Functions ---
-        function showApiModal() {
-            document.getElementById('apiEndpoint').value = demoMode ? '' : apiEndpoint;
-            document.getElementById('apiModal').classList.remove('hidden');
+        let apiModalOpener = null;
+
+        function setApplicationBackgroundInert(inert) {
+            for (const region of [document.getElementById('sidebar'), document.getElementById('mainChat')]) {
+                region.inert = inert;
+                region.setAttribute('aria-hidden', String(inert));
+            }
+            if (!inert) updateSidebarAccessibility();
         }
 
+        function showApiModal() {
+            const modal = document.getElementById('apiModal');
+            apiModalOpener = document.activeElement;
+            document.getElementById('apiEndpoint').value = demoMode ? '' : apiEndpoint;
+            setApplicationBackgroundInert(true);
+            modal.classList.remove('hidden');
+            requestAnimationFrame(() => document.getElementById('apiEndpoint').focus());
+        }
+
+        function hideApiModal() {
+            document.getElementById('apiModal').classList.add('hidden');
+            setApplicationBackgroundInert(false);
+            if (apiModalOpener?.isConnected) {
+                apiModalOpener.focus();
+            } else {
+                document.getElementById('messageInput').focus();
+            }
+            apiModalOpener = null;
+        }
+
+        function handleApiModalKeydown(event) {
+            const modal = document.getElementById('apiModal');
+            if (modal.classList.contains('hidden')) return;
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                hideApiModal();
+                return;
+            }
+            if (event.key !== 'Tab') return;
+
+            const focusable = [...modal.querySelectorAll('button:not([disabled]), input:not([disabled])')]
+                .filter((element) => element.getClientRects().length > 0);
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (!first || !last) {
+                event.preventDefault();
+                modal.focus();
+            } else if (event.shiftKey && (document.activeElement === first || document.activeElement === modal)) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        }
+
+        document.getElementById('apiModal').addEventListener('keydown', handleApiModalKeydown);
+
         function saveApiEndpoint() {
-            const endpoint = document.getElementById('apiEndpoint').value.trim() || getDefaultApiEndpoint();
+            const endpointInput = document.getElementById('apiEndpoint');
+            if (!endpointInput.checkValidity()) {
+                endpointInput.reportValidity();
+                endpointInput.focus();
+                return;
+            }
+            const endpoint = endpointInput.value.trim() || getDefaultApiEndpoint();
             apiEndpoint = endpoint;
             demoMode = false;
             localStorage.setItem(DEMO_MODE_STORAGE_KEY, 'false');
             localStorage.setItem('geminiApiEndpoint', endpoint);
-            document.getElementById('apiModal').classList.add('hidden');
+            hideApiModal();
         }
 
         function skipSetup() {
             demoMode = true;
             apiEndpoint = '';
             localStorage.setItem(DEMO_MODE_STORAGE_KEY, 'true');
-            document.getElementById('apiModal').classList.add('hidden');
+            hideApiModal();
         }
 
         function sendSuggestion(text) {
@@ -1602,7 +1778,7 @@
 
         // --- Chat Logic ---
         async function sendMessage(options = {}) {
-            if (isLoading) return;
+            if (isLoading || isConversationTransitioning || !activeConversation) return;
 
             if (options.allowSpeech) {
                 speechUserGestureUnlocked = true;
@@ -1613,6 +1789,9 @@
             const message = (hasMessageOverride ? options.message : input.value).trim();
             if (!message) return;
 
+            const requestConversation = activeConversation;
+            const request = chatRequestOwner.begin(requestConversation.id);
+
             const chatContainer = document.getElementById('chatContainer');
             if (!chatStarted) {
                 chatContainer.innerHTML = '';
@@ -1621,24 +1800,24 @@
 
             messageCount++;
             isLoading = true;
+            chatContainer.setAttribute('aria-busy', 'true');
+            announceChatStatus('Sending your message to Poornima Oracle.');
 
             const sendBtn = document.getElementById('sendButton');
             sendBtn.disabled = true;
-            sendBtn.innerHTML = '<div class="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin"></div>';
+            sendBtn.innerHTML = '<div aria-hidden="true" class="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin"></div>';
 
-            // Add User Message
             const userMessage = { id: createMessageId('user'), role: 'user', content: String(message) };
-            conversationHistory.push(userMessage);
+            requestConversation.messages.push(userMessage);
+            conversationHistory = requestConversation.messages;
 
-            // Auto-title the conversation from the first user message
-            if (activeConversation && !activeConversation.titled) {
-                activeConversation.title = store.generateTitle(message);
-                activeConversation.titled = true;
-                // Update sidebar with the new title (deferred to not block UI)
+            if (!requestConversation.titled) {
+                requestConversation.title = store.generateTitle(message);
+                requestConversation.titled = true;
                 window.setTimeout(() => renderSidebarConversations(), 0);
             }
 
-            saveConversationHistory();
+            saveConversationHistory(requestConversation);
             renderUserMessage(userMessage);
             refreshIcons();
 
@@ -1659,15 +1838,17 @@
             try {
                 let responsePayload;
                 if (demoMode || !apiEndpoint) {
-                    responsePayload = await runDemoStream(streamRenderer);
+                    responsePayload = await runDemoStream(streamRenderer, request.controller.signal);
                 } else {
                     responsePayload = await callGeminiAPI(message, {
-                        onSources: (sources) => {
+                        signal: request.controller.signal,
+                        conversationMessages: requestConversation.messages,
+                        onSources: () => {
+                            if (!ownsActiveChatRequest(request)) return;
                             assistantShell.sourcesEl.innerHTML = '';
-                            chatContainer.scrollTop = chatContainer.scrollHeight;
-                            updateScrollToBottomButton();
                         },
                         onToken: (answer) => {
+                            if (!ownsActiveChatRequest(request)) return;
                             streamRenderer(answer);
                             chatContainer.scrollTop = chatContainer.scrollHeight;
                             updateScrollToBottomButton();
@@ -1675,12 +1856,13 @@
                     });
                 }
 
+                if (!ownsActiveChatRequest(request)) return;
                 const responseText = String(responsePayload.answer || '');
                 const sources = Array.isArray(responsePayload.sources) ? responsePayload.sources : [];
                 streamRenderer.flush(responseText);
                 assistantShell.sourcesEl.innerHTML = '';
                 assistantShell.feedbackEl.innerHTML = renderFeedbackControls(assistantId);
-                conversationHistory.push({
+                requestConversation.messages.push({
                     id: assistantId,
                     role: 'assistant',
                     content: responseText,
@@ -1688,22 +1870,53 @@
                     feedback: '',
                     question: message,
                 });
-                saveConversationHistory();
+                conversationHistory = requestConversation.messages;
+                saveConversationHistory(requestConversation);
                 assistantShell.actionEl.innerHTML = renderAssistantActionBar(assistantId);
                 refreshIcons();
+                announceChatStatus('Response complete. The answer is in the conversation.');
                 maybeAutoReadAssistantMessage(assistantId);
+            } catch (error) {
+                if (!ownsActiveChatRequest(request)) return;
+                const partialText = streamRenderer.getText();
+                announceChatStatus(partialText ? 'Response interrupted.' : 'The response could not be completed.');
+                const errorMessage = error?.name === 'AbortError'
+                    ? 'The request was cancelled.'
+                    : (error?.message || 'The response could not be completed.');
 
-            } catch (err) {
-                assistantShell.wrapper.remove();
-                const errHTML = `<div class="flex justify-center mb-6"><div class="bg-rose-500/10 border border-rose-500/20 text-rose-400 px-4 py-2 rounded-xl text-sm">Error: ${escapeHtml(err.message)}</div></div>`;
-                chatContainer.insertAdjacentHTML('beforeend', errHTML);
+                if (partialText) {
+                    const partialAnswer = `${partialText}\n\n> Response interrupted. You can retry this answer.`;
+                    streamRenderer.flush(partialAnswer);
+                    requestConversation.messages.push({
+                        id: assistantId,
+                        role: 'assistant',
+                        content: partialAnswer,
+                        feedback: '',
+                        question: message,
+                        partial: true,
+                    });
+                    conversationHistory = requestConversation.messages;
+                    assistantShell.feedbackEl.innerHTML = renderFeedbackControls(assistantId);
+                    assistantShell.actionEl.innerHTML = renderAssistantActionBar(assistantId);
+                    saveConversationHistory(requestConversation);
+                } else {
+                    assistantShell.wrapper.remove();
+                    const errorElement = document.createElement('div');
+                    errorElement.className = 'flex justify-center mb-6';
+                    errorElement.innerHTML = `<div class="bg-rose-500/10 border border-rose-500/20 text-rose-400 px-4 py-2 rounded-xl text-sm">Error: ${escapeHtml(errorMessage)}</div>`;
+                    chatContainer.appendChild(errorElement);
+                }
             } finally {
-                isLoading = false;
-                sendBtn.disabled = false;
-                sendBtn.innerHTML = '<i data-lucide="send" class="w-5 h-5"></i>';
-                refreshIcons();
-                chatContainer.scrollTop = chatContainer.scrollHeight;
-                updateScrollToBottomButton();
+                if (ownsActiveChatRequest(request)) {
+                    chatRequestOwner.finish(request);
+                    isLoading = false;
+                    chatContainer.setAttribute('aria-busy', 'false');
+                    sendBtn.disabled = false;
+                    sendBtn.innerHTML = '<i data-lucide="send" class="w-5 h-5"></i>';
+                    refreshIcons();
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                    updateScrollToBottomButton();
+                }
             }
         }
 
@@ -1713,14 +1926,35 @@
             }
 
             if (!apiEndpoint) throw new Error('API endpoint not configured.');
+            const conversationMessages = Array.isArray(handlers.conversationMessages)
+                ? handlers.conversationMessages
+                : conversationHistory;
+            const payload = PoornimaChatContract.buildChatRequestPayloadFromConversation(
+                message,
+                conversationMessages
+            );
             const resp = await fetch(apiEndpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: message, history: conversationHistory })
+                body: JSON.stringify(payload),
+                signal: handlers.signal,
             });
             if (!resp.ok) {
-                const txt = await resp.text().catch(() => null);
-                throw new Error(txt || `Request failed: ${resp.status}`);
+                const contentType = resp.headers.get('content-type') || '';
+                const body = await resp.text().catch(() => '');
+                let errorMessage = `Request failed (${resp.status}). Please try again.`;
+                if (contentType.includes('application/json')) {
+                    try {
+                        const errorPayload = JSON.parse(body);
+                        if (typeof errorPayload?.error === 'string') errorMessage = errorPayload.error;
+                        else if (typeof errorPayload?.message === 'string') errorMessage = errorPayload.message;
+                    } catch (error) {
+                        // Keep the generic status message for malformed error bodies.
+                    }
+                } else if (body && !/text\/html/i.test(contentType)) {
+                    errorMessage = body.slice(0, 200);
+                }
+                throw new Error(errorMessage);
             }
 
             const contentType = resp.headers.get('content-type') || '';
@@ -1775,9 +2009,18 @@
                 }
             }
 
+            if (!donePayload) {
+                throw new Error('The response stream ended before completion.');
+            }
+
+            const finalAnswer = typeof donePayload.answer === 'string' ? donePayload.answer : answer;
+            if (finalAnswer !== answer) {
+                throw new Error('The completed answer did not match the streamed text.');
+            }
+
             return {
-                answer: String(donePayload?.answer || answer),
-                sources: Array.isArray(donePayload?.sources) ? donePayload.sources : sources,
+                answer: finalAnswer,
+                sources: Array.isArray(donePayload.sources) ? donePayload.sources : sources,
             };
         }
 
@@ -1803,10 +2046,11 @@
             }
         }
 
-        async function runDemoStream(render) {
+        async function runDemoStream(render, signal) {
             const answer = 'I am currently in **Demo Mode**. Please configure a backend API endpoint to stream Poornima Oracle answers with citations.';
             let rendered = '';
             for (const token of answer.split(/(\s+)/)) {
+                if (signal?.aborted) throw new DOMException('Request cancelled.', 'AbortError');
                 rendered += token;
                 render(rendered);
                 await new Promise(resolve => window.setTimeout(resolve, 35));
@@ -1861,10 +2105,11 @@
             return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
         }
 
-        function saveConversationHistory() {
-            // Persist active conversation to IndexedDB
-            if (!activeConversation || !store) return;
-            store.saveConversation(activeConversation).catch(e => console.warn('[Oracle] Save failed:', e));
+        function saveConversationHistory(conversation = activeConversation) {
+            if (!conversation || !store) return;
+            store.saveConversation(conversation).catch((error) => {
+                console.warn('[Oracle] Save failed:', error?.name || 'Error');
+            });
         }
 
         function loadConversationHistory() {
@@ -1934,18 +2179,18 @@
             const safeMessageId = escapeHtml(messageId);
 
             return `
-                <div class="assistant-action-bar hidden md:flex opacity-0 group-hover:opacity-100 transition mt-2 ml-1 items-center gap-2 text-xs text-zinc-500">
-                    <button type="button" class="relative inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 font-medium hover:bg-white/10 hover:text-white transition" aria-label="Copy response" onclick="copyAssistantMessage('${safeMessageId}', this)">
-                        <i data-lucide="copy" class="w-4 h-4"></i>
+                <div class="assistant-action-bar flex flex-wrap opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition mt-2 ml-1 items-center gap-2 text-xs text-zinc-300">
+                    <button type="button" class="relative inline-flex min-h-11 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-2 font-medium hover:bg-white/10 hover:text-white transition" aria-label="Copy response" onclick="copyAssistantMessage('${safeMessageId}', this)">
+                        <i data-lucide="copy" aria-hidden="true" class="w-4 h-4"></i>
                         <span>Copy</span>
-                        <span class="copy-tooltip" data-copy-tooltip>Copied!</span>
+                        <span class="copy-tooltip" data-copy-tooltip aria-live="polite">Copied!</span>
                     </button>
-                    <button type="button" class="speech-button inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 font-medium hover:bg-white/10 hover:text-white transition" aria-label="Read response aloud" aria-pressed="false" data-speech-for="${safeMessageId}" data-speech-label="true" onclick="readAssistantMessage('${safeMessageId}')">
-                        <i data-lucide="volume-2" class="w-4 h-4"></i>
+                    <button type="button" class="speech-button inline-flex min-h-11 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-2 font-medium hover:bg-white/10 hover:text-white transition" aria-label="Read response aloud" aria-pressed="false" data-speech-for="${safeMessageId}" data-speech-label="true" onclick="readAssistantMessage('${safeMessageId}')">
+                        <i data-lucide="volume-2" aria-hidden="true" class="w-4 h-4"></i>
                         <span>Read Aloud</span>
                     </button>
-                    <button type="button" class="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 font-medium hover:bg-white/10 hover:text-white transition" aria-label="Regenerate response" onclick="regenerateAssistantMessage('${safeMessageId}')">
-                        <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                    <button type="button" class="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-2 font-medium hover:bg-white/10 hover:text-white transition" aria-label="Regenerate response" onclick="regenerateAssistantMessage('${safeMessageId}')">
+                        <i data-lucide="refresh-cw" aria-hidden="true" class="w-4 h-4"></i>
                         <span>Regenerate</span>
                     </button>
                 </div>`;
@@ -1970,6 +2215,7 @@
                 latestText = text;
                 contentEl.innerHTML = renderMarkdown(latestText);
             };
+            render.getText = () => latestText;
 
             return render;
         }
@@ -1981,7 +2227,7 @@
                 const rawHtml = marked.parse(String(text));
                 return DOMPurify.sanitize(rawHtml, {
                     ADD_ATTR: ['target', 'rel'],
-                    ALLOWED_URI_REGEXP: /^(?:(?:https?|ftp|mailto):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
+                    ALLOWED_URI_REGEXP: PoornimaChatContract.SAFE_MARKDOWN_URL_PATTERN,
                 });
             }
 
@@ -2011,19 +2257,19 @@
             const upPressed = selectedRating === 'up' ? 'true' : 'false';
             const downPressed = selectedRating === 'down' ? 'true' : 'false';
             const speechControl = canUseSpeechSynthesis()
-                ? `<button type="button" class="speech-button inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/10 hover:text-white transition" aria-label="Read response aloud" aria-pressed="false" data-speech-for="${escapeHtml(messageId)}" onclick="toggleMessageSpeech('${escapeHtml(messageId)}')">
-                        <i data-lucide="volume-2" class="w-4 h-4"></i>
+                ? `<button type="button" class="speech-button inline-flex h-11 w-11 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/10 hover:text-white transition" aria-label="Read response aloud" aria-pressed="false" data-speech-for="${escapeHtml(messageId)}" onclick="toggleMessageSpeech('${escapeHtml(messageId)}')">
+                        <i data-lucide="volume-2" aria-hidden="true" class="w-4 h-4"></i>
                     </button>`
                 : '';
 
             return `
                 <div class="mt-3 flex items-center gap-2 text-zinc-500" data-feedback-for="${escapeHtml(messageId)}">
                     ${speechControl}
-                    <button type="button" class="feedback-button inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/10 hover:text-white transition" aria-label="Helpful response" aria-pressed="${upPressed}" onclick="submitFeedback('${escapeHtml(messageId)}', 'up')">
-                        <i data-lucide="thumbs-up" class="w-4 h-4"></i>
+                    <button type="button" class="feedback-button inline-flex h-11 w-11 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/10 hover:text-white transition" aria-label="Helpful response" aria-pressed="${upPressed}" onclick="submitFeedback('${escapeHtml(messageId)}', 'up')">
+                        <i data-lucide="thumbs-up" aria-hidden="true" class="w-4 h-4"></i>
                     </button>
-                    <button type="button" class="feedback-button inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/10 hover:text-white transition" aria-label="Unhelpful response" aria-pressed="${downPressed}" onclick="submitFeedback('${escapeHtml(messageId)}', 'down')">
-                        <i data-lucide="thumbs-down" class="w-4 h-4"></i>
+                    <button type="button" class="feedback-button inline-flex h-11 w-11 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/10 hover:text-white transition" aria-label="Unhelpful response" aria-pressed="${downPressed}" onclick="submitFeedback('${escapeHtml(messageId)}', 'down')">
+                        <i data-lucide="thumbs-down" aria-hidden="true" class="w-4 h-4"></i>
                     </button>
                 </div>`;
         }
@@ -2090,45 +2336,67 @@
         class ClickSpark {
             constructor() {
                 this.canvas = document.getElementById('click-spark-canvas');
-                this.ctx = this.canvas.getContext('2d');
+                this.ctx = this.canvas?.getContext('2d');
+                if (!this.canvas || !this.ctx) return;
+
                 this.sparks = [];
                 this.sparkColor = '#fff';
                 this.sparkSize = 10;
                 this.sparkRadius = 15;
                 this.sparkCount = 8;
                 this.duration = 400;
+                this.animationFrameId = null;
+                this.motionPreference = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+                this.reducedMotion = Boolean(this.motionPreference?.matches);
                 this.resize();
                 this.initEvents();
-                this.animate();
+
+                const handleMotionChange = (event) => {
+                    this.reducedMotion = event.matches;
+                    if (!event.matches) return;
+                    if (this.animationFrameId !== null) {
+                        cancelAnimationFrame(this.animationFrameId);
+                        this.animationFrameId = null;
+                    }
+                    this.sparks = [];
+                    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                };
+                this.motionPreference?.addEventListener?.('change', handleMotionChange);
             }
             initEvents() {
                 window.addEventListener('resize', () => this.resize());
-                window.addEventListener('click', (e) => this.addSparks(e));
-                window.addEventListener('touchstart', (e) => {
-                    const touch = e.touches[0];
-                    this.addSparks({ clientX: touch.clientX, clientY: touch.clientY });
-                });
+                window.addEventListener('click', (event) => this.addSparks(event));
+                window.addEventListener('touchstart', (event) => {
+                    const touch = event.touches[0];
+                    if (touch) this.addSparks({ clientX: touch.clientX, clientY: touch.clientY });
+                }, { passive: true });
             }
             resize() {
                 this.canvas.width = window.innerWidth;
                 this.canvas.height = window.innerHeight;
             }
             easeOut(t) { return t * (2 - t); }
-            addSparks(e) {
+            addSparks(event) {
+                if (this.reducedMotion) return;
                 const now = performance.now();
-                for (let i = 0; i < this.sparkCount; i++) {
+                for (let index = 0; index < this.sparkCount; index += 1) {
                     this.sparks.push({
-                        x: e.clientX,
-                        y: e.clientY,
-                        angle: (2 * Math.PI * i) / this.sparkCount,
-                        startTime: now
+                        x: event.clientX,
+                        y: event.clientY,
+                        angle: (2 * Math.PI * index) / this.sparkCount,
+                        startTime: now,
                     });
+                }
+                if (this.animationFrameId === null) {
+                    this.animationFrameId = requestAnimationFrame((timestamp) => this.animate(timestamp));
                 }
             }
             animate(timestamp) {
+                this.animationFrameId = null;
+                if (this.reducedMotion) return;
                 if (!timestamp) timestamp = performance.now();
                 this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-                this.sparks = this.sparks.filter(spark => {
+                this.sparks = this.sparks.filter((spark) => {
                     const elapsed = timestamp - spark.startTime;
                     if (elapsed >= this.duration) return false;
                     const progress = elapsed / this.duration;
@@ -2147,7 +2415,9 @@
                     this.ctx.stroke();
                     return true;
                 });
-                requestAnimationFrame((t) => this.animate(t));
+                if (this.sparks.length > 0) {
+                    this.animationFrameId = requestAnimationFrame((nextTimestamp) => this.animate(nextTimestamp));
+                }
             }
         }
     </script>

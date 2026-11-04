@@ -2,12 +2,18 @@
   "name": "poornima-instructor-server",
   "version": "1.0.0",
   "main": "server.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build:css": "tailwindcss -i ./tailwind.input.css -o ./styles.css --minify",
+    "check": "node --check server.js && node --check chat-contract.js && node --check chat-request-owner.js && npm run check:client",
+    "check:client": "node scripts/check-client.js",
+    "check:css": "npm run build:css && git diff --exit-code -- styles.css",
     "dev": "node server.js",
     "start": "node server.js",
     "start:prod": "pm2 start server.js --name poornima-oracle",
-    "check": "node --check server.js"
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "@google/genai": "^1.28.0",
@@ -19,8 +25,7 @@
     "express-rate-limit": "^8.5.2",
     "helmet": "^8.2.0",
     "node-cache": "^5.1.2",
-    "pm2": "^7.0.1",
-    "xss": "^1.0.15"
+    "pm2": "^7.0.1"
   },
   "devDependencies": {
     "tailwindcss": "^3.4.19"
