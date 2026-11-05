@@ -11,11 +11,12 @@ const xss = require('xss');
 const NodeCache = require('node-cache');
 const { GoogleGenAI } = require('@google/genai');
 const { Pinecone } = require('@pinecone-database/pinecone');
-const { fallbackRouter } = require('./services/fallback-router');
+const { fallbackRouter, DEFAULT_OLLAMA_HOST } = require('./services/fallback-router');
 const { mcpManager } = require('./services/mcp-manager');
 const cron = require('node-cron');
 const { syncNotices, NOTICES_NAMESPACE } = require('./services/crawler/notice-sync');
 const { getUpcomingCalendarEvents, getCalendarContextForPrompt } = require('./services/calendar-service');
+const chatContract = require('./chat-contract');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -38,7 +39,7 @@ const embeddingModel = process.env.GEMINI_EMBEDDING_MODEL
   : 'gemini-embedding-001';
 const chatModel = process.env.GEMINI_MODEL
   ? process.env.GEMINI_MODEL.trim()
-  : 'gemini-2.0-flash';
+  : 'gemini-3.5-flash';
 const adminApiKey = process.env.ADMIN_API_KEY ? process.env.ADMIN_API_KEY.trim() : '';
 const noticeSyncCron = process.env.NOTICE_SYNC_CRON ? process.env.NOTICE_SYNC_CRON.trim() : '30 0 * * *'; // Default: 6:00 AM IST (00:30 UTC)
 const noticeSyncEnabled = process.env.NOTICE_SYNC_ENABLED !== 'false'; // Default: true
@@ -64,6 +65,38 @@ function parseBoundedNumber(value, fallback, min, max) {
   }
 
   return Math.min(Math.max(parsed, min), max);
+}
+
+function getAllowedOllamaHost(rawHost) {
+  if (typeof rawHost !== 'string' || !rawHost.trim()) {
+    return '';
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(rawHost.trim());
+  } catch {
+    return '';
+  }
+
+  if (parsed.protocol !== 'https:') {
+    return '';
+  }
+
+  let configuredHostname = 'ollama.com';
+  try {
+    configuredHostname = new URL(process.env.OLLAMA_HOST || DEFAULT_OLLAMA_HOST).hostname.toLowerCase();
+  } catch {
+    // Keep the default allowlist entry.
+  }
+
+  const allowedHostnames = new Set([configuredHostname, 'ollama.com']);
+  if (!allowedHostnames.has(parsed.hostname.toLowerCase())) {
+    console.warn('Rejected disallowed x-ollama-host override:', parsed.hostname);
+    return '';
+  }
+
+  return parsed.origin;
 }
 
 const CHAT_RATE_LIMIT_WINDOW_MS = parsePositiveInteger(
@@ -129,8 +162,8 @@ function createTimeoutFetch(timeoutMs) {
 function validateApiKeyFormat(key, name, minLength) {
   if (!key) return { valid: false, reason: 'not set or empty' };
   if (key.length < minLength) return { valid: false, reason: `too short (${key.length} chars, expected at least ${minLength})` };
-  const validPattern = /^[A-Za-z0-9_-]+$/;
-  if (!validPattern.test(key)) return { valid: false, reason: 'contains invalid characters (only alphanumeric, underscore, and hyphen allowed)' };
+  const validPattern = /^[A-Za-z0-9._-]+$/;
+  if (!validPattern.test(key)) return { valid: false, reason: 'contains invalid characters (only alphanumeric, dot, underscore, and hyphen allowed)' };
   return { valid: true };
 }
 
@@ -365,27 +398,11 @@ function getRecentHistoryEntries(history, currentMessage = '') {
     return [];
   }
 
-  let cleanHistory = history
-    .map((message) => {
-      if (!message || typeof message !== 'object') {
-        return null;
-      }
-
-      const content = sanitizeText(message.content);
-      if (!content) {
-        return null;
-      }
-
-      return {
-        role: message.role === 'user' ? 'user' : 'assistant',
-        content,
-      };
-    })
-    .filter(Boolean);
+  let cleanHistory = chatContract.normalizeHistory(history);
 
   if (cleanHistory.length > 0 && typeof currentMessage === 'string' && currentMessage.trim()) {
     const last = cleanHistory[cleanHistory.length - 1];
-    if (last.role === 'user' && last.content.trim() === sanitizeText(currentMessage).trim()) {
+    if (last.role === 'user' && last.content.trim() === chatContract.cleanPlainText(currentMessage).trim()) {
       cleanHistory = cleanHistory.slice(0, -1);
     }
   }
@@ -405,7 +422,7 @@ function buildHistoryContext(history, currentMessage = '') {
 
 function buildContextSnippets(matches) {
   return matches
-    .map((match) => sanitizeText(match?.metadata?.text))
+    .map((match) => chatContract.cleanPlainText(match?.metadata?.text, MAX_CONTEXT_CHARS))
     .filter(Boolean)
     .slice(0, 3)
     .join('\n\n')
@@ -478,9 +495,19 @@ function filterRelevantMatches(matches) {
 }
 
 function writeSse(res, event, payload) {
+  if (res.destroyed || res.writableEnded) {
+    return;
+  }
+
   res.write(`event: ${event}\n`);
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
   res.flush?.();
+}
+
+function endResponseQuietly(res) {
+  if (!res.writableEnded && !res.destroyed) {
+    res.end();
+  }
 }
 
 function setSseHeaders(res) {
@@ -491,7 +518,7 @@ function setSseHeaders(res) {
 }
 
 function normalizeForCache(value) {
-  return sanitizeText(value)
+  return chatContract.cleanPlainText(value, MAX_MESSAGE_CHARS)
     .normalize('NFKC')
     .replace(/\s+/g, ' ')
     .trim()
@@ -500,7 +527,7 @@ function normalizeForCache(value) {
 
 function getQueryCacheKey(message, history, profile = null) {
   const payload = {
-    v: 3,
+    v: 4,
     message: normalizeForCache(message),
     history: getRecentHistoryEntries(history, message).map((entry) => ({
       role: entry.role,
@@ -600,6 +627,7 @@ async function streamFallbackResponse(res, {
     });
 
     if (clientAbortController.signal.aborted) {
+      endResponseQuietly(res);
       return;
     }
 
@@ -614,7 +642,7 @@ async function streamFallbackResponse(res, {
       writeSse(res, 'sources', { sources });
     }
 
-    if (queryCacheKey && finalAnswer) {
+    if (queryCacheKey && finalAnswer && result?.success !== false) {
       queryCache.set(queryCacheKey, {
         answer: finalAnswer,
         sources,
@@ -716,7 +744,8 @@ async function startAnswerStream(message, historyContext, contextSnippets, profi
   return withTransientRetries('Gemini answer stream start', async () => {
     const abortController = createRequestAbortController(RAG_REQUEST_TIMEOUT_MS);
     const combinedSignal = externalSignal || abortController.signal;
-    const modelsToTry = [chatModel, 'gemini-2.0-flash', 'gemini-1.5-flash'].filter((m, i, arr) => arr.indexOf(m) === i);
+    const modelsToTry = [chatModel, 'gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash']
+      .filter((m, i, arr) => arr.indexOf(m) === i);
     let lastError;
     try {
       for (const modelName of modelsToTry) {
@@ -821,7 +850,7 @@ app.get('/api/test-models', async (req, res) => {
   }
 
   // 2. Test generation on common model candidates
-  const candidates = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite', 'gemini-1.5-flash'];
+  const candidates = ['gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
   results.tests = {};
   for (const m of candidates) {
     try {
@@ -840,13 +869,16 @@ app.get('/api/test-models', async (req, res) => {
 
 app.get('/api/calendar', async (req, res) => {
   try {
-    const campus = (req.query.campus || req.query.college || 'ALL').toUpperCase();
+    const requestedCampus = String(req.query.campus || req.query.college || 'ALL').toUpperCase();
+    const campus = ['PU', 'PCE', 'PIET', 'GENERAL', 'ALL'].includes(requestedCampus)
+      ? requestedCampus
+      : 'ALL';
     const category = (req.query.category || 'all').toLowerCase();
     const daysAhead = parsePositiveInteger(req.query.daysAhead, 90);
     const limit = parseBoundedInteger(req.query.limit, 25, 1, 100);
 
     const data = await getUpcomingCalendarEvents({
-      campus,
+      college: campus,
       category,
       daysAhead,
       limit,
@@ -868,22 +900,29 @@ app.get('/api/calendar', async (req, res) => {
 
 app.post('/api/chat', chatRateLimiter, async (req, res) => {
   const clientAbortController = new AbortController();
-  req.on('close', () => {
+  // `req` emits 'close' as soon as its body has been consumed, so listening on it
+  // aborts every request. The response's 'close' only fires on real disconnects.
+  res.on('close', () => {
     if (!res.writableEnded) {
       clientAbortController.abort();
     }
   });
 
-  const message = sanitizeText(req.body?.message);
+  const message = chatContract.cleanPlainText(req.body?.message, MAX_MESSAGE_CHARS);
   const history = Array.isArray(req.body?.history) ? req.body.history : [];
   const profile = sanitizeProfile(req.body?.profile);
-  const queryCacheKey = message ? getQueryCacheKey(message, history, profile) : null;
 
-  const clientOpenRouterKey = req.headers['x-openrouter-key'] ? String(req.headers['x-openrouter-key']).trim() : '';
-  const clientOllamaKey = req.headers['x-ollama-key'] ? String(req.headers['x-ollama-key']).trim() : '';
-  const clientOllamaHost = req.headers['x-ollama-host'] ? String(req.headers['x-ollama-host']).trim() : '';
+  const clientOpenRouterKey = req.headers['x-openrouter-key'] ? String(req.headers['x-openrouter-key']).trim().slice(0, 512) : '';
+  const clientOllamaKey = req.headers['x-ollama-key'] ? String(req.headers['x-ollama-key']).trim().slice(0, 512) : '';
+  const clientOllamaHost = getAllowedOllamaHost(req.headers['x-ollama-host']);
   const clientFallbackHeader = req.headers['x-fallback-enabled'] ? String(req.headers['x-fallback-enabled']).trim() : '';
   const fallbackEnabled = clientFallbackHeader ? clientFallbackHeader !== 'false' : undefined;
+  // Provider credentials/hosts are client-supplied, so their answers must never
+  // enter the shared query cache (otherwise one response can be served to all users).
+  const hasProviderOverrides = Boolean(clientOpenRouterKey || clientOllamaKey || clientOllamaHost);
+  const queryCacheKey = message && !hasProviderOverrides
+    ? getQueryCacheKey(message, history, profile)
+    : null;
 
   const currentFallbackRouter = fallbackRouter.withOverrides({
     ...(clientOpenRouterKey ? { openrouterApiKey: clientOpenRouterKey } : {}),
@@ -985,15 +1024,11 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
         includeMetadata: true,
       };
 
-      const handbookQuery = pineconeIndex.query({
-        ...baseQueryOptions,
-        ...(pineconeNamespace ? { namespace: pineconeNamespace } : {}),
-      });
+      const handbookQuery = (pineconeNamespace
+        ? pineconeIndex.namespace(pineconeNamespace)
+        : pineconeIndex).query(baseQueryOptions);
 
-      const noticesQuery = pineconeIndex.query({
-        ...baseQueryOptions,
-        namespace: NOTICES_NAMESPACE,
-      });
+      const noticesQuery = pineconeIndex.namespace(NOTICES_NAMESPACE).query(baseQueryOptions);
 
       const [handbookResult, noticesResult] = await Promise.allSettled([handbookQuery, noticesQuery]);
 
@@ -1053,7 +1088,7 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
     // Tier 2 #6: Grounding with official Academic Calendar & Exam Schedule
     let calendarContext = '';
     try {
-      calendarContext = await getCalendarContextForPrompt(message, profile?.college || 'ALL');
+      calendarContext = await getCalendarContextForPrompt(profile?.college || 'ALL', 5);
     } catch (calErr) {
       console.warn('Calendar context lookup failed:', calErr?.message || calErr);
     }
@@ -1074,6 +1109,7 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
     }
 
     if (clientAbortController.signal.aborted) {
+      endResponseQuietly(res);
       return;
     }
 
@@ -1166,6 +1202,7 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
     }
 
     if (clientAbortController.signal.aborted) {
+      endResponseQuietly(res);
       return;
     }
 
@@ -1189,7 +1226,9 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
     }
 
     answer = answer.trim() || 'I could not generate a response. Please try again.';
-    queryCache.set(queryCacheKey, { answer, sources });
+    if (queryCacheKey && answer !== 'I could not generate a response. Please try again.') {
+      queryCache.set(queryCacheKey, { answer, sources });
+    }
     writeSse(res, 'done', { answer, sources });
     res.end();
   } catch (error) {
@@ -1370,10 +1409,9 @@ const server = app.listen(PORT, () => {
         console.error('[NoticeSyncCron] Sync failed:', err.message);
       }
     }, {
-      timezone: 'Asia/Kolkata',
       noOverlap: true,
     });
-    console.log(`[NoticeSyncCron] Scheduled: "${noticeSyncCron}" (Asia/Kolkata timezone)`);
+    console.log(`[NoticeSyncCron] Scheduled: "${noticeSyncCron}" (server time / UTC)`);
   } else if (!noticeSyncEnabled) {
     console.log('[NoticeSyncCron] Disabled (NOTICE_SYNC_ENABLED=false)');
   } else {

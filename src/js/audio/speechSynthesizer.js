@@ -5,6 +5,16 @@ import { state } from '../state.js';
 import { AUTO_READ_STORAGE_KEY } from '../config.js';
 import { refreshIcons } from '../utils/dom.js';
 
+function safeStorageSet(key, value) {
+    try {
+        window.localStorage.setItem(key, value);
+        return true;
+    } catch (error) {
+        console.warn('[Oracle] localStorage write failed:', error);
+        return false;
+    }
+}
+
 export function canUseSpeechSynthesis() {
     return typeof window !== 'undefined' && Boolean(window.speechSynthesis && typeof window.SpeechSynthesisUtterance === 'function');
 }
@@ -14,7 +24,7 @@ export function toggleAutoRead() {
 
     state.speechUserGestureUnlocked = true;
     state.autoReadEnabled = !state.autoReadEnabled;
-    localStorage.setItem(AUTO_READ_STORAGE_KEY, state.autoReadEnabled ? 'true' : 'false');
+    safeStorageSet(AUTO_READ_STORAGE_KEY, state.autoReadEnabled ? 'true' : 'false');
     updateAutoReadToggle();
 
     if (!state.autoReadEnabled) {

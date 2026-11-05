@@ -9,6 +9,26 @@ import { updateInstallUI } from '../pwa/installPrompt.js';
 import { saveStudentProfile, updateProfileUI } from '../profile/profileStore.js';
 import { syncSidebarAccessibility } from './sidebar.js';
 
+function safeStorageGet(key, fallback = null) {
+    try {
+        const value = window.localStorage.getItem(key);
+        return value === null ? fallback : value;
+    } catch (error) {
+        console.warn('[Oracle] localStorage read failed:', error);
+        return fallback;
+    }
+}
+
+function safeStorageSet(key, value) {
+    try {
+        window.localStorage.setItem(key, value);
+        return true;
+    } catch (error) {
+        console.warn('[Oracle] localStorage write failed:', error);
+        return false;
+    }
+}
+
 let lastFocusedElement = null;
 
 export function showApiModal() {
@@ -20,22 +40,22 @@ export function showApiModal() {
 
     const toggle = document.getElementById('fallbackAgentToggle');
     if (toggle) {
-        toggle.checked = localStorage.getItem(FALLBACK_STORAGE_KEYS.ENABLED) !== 'false';
+        toggle.checked = safeStorageGet(FALLBACK_STORAGE_KEYS.ENABLED) !== 'false';
     }
 
     const orKeyInput = document.getElementById('openrouterApiKey');
     if (orKeyInput) {
-        orKeyInput.value = localStorage.getItem(FALLBACK_STORAGE_KEYS.OPENROUTER_KEY) || '';
+        orKeyInput.value = safeStorageGet(FALLBACK_STORAGE_KEYS.OPENROUTER_KEY) || '';
     }
 
     const olHostInput = document.getElementById('ollamaHost');
     if (olHostInput) {
-        olHostInput.value = localStorage.getItem(FALLBACK_STORAGE_KEYS.OLLAMA_HOST) || '';
+        olHostInput.value = safeStorageGet(FALLBACK_STORAGE_KEYS.OLLAMA_HOST) || '';
     }
 
     const olKeyInput = document.getElementById('ollamaApiKey');
     if (olKeyInput) {
-        olKeyInput.value = localStorage.getItem(FALLBACK_STORAGE_KEYS.OLLAMA_KEY) || '';
+        olKeyInput.value = safeStorageGet(FALLBACK_STORAGE_KEYS.OLLAMA_KEY) || '';
     }
 
     toggleFallbackConfigVisibility();
@@ -93,27 +113,27 @@ export function saveApiEndpoint() {
     const endpoint = (endpointInput ? endpointInput.value.trim() : '') || getDefaultApiEndpoint();
     state.apiEndpoint = endpoint;
     state.demoMode = false;
-    localStorage.setItem(DEMO_MODE_STORAGE_KEY, 'false');
-    localStorage.setItem(GEMINI_ENDPOINT_STORAGE_KEY, endpoint);
+    safeStorageSet(DEMO_MODE_STORAGE_KEY, 'false');
+    safeStorageSet(GEMINI_ENDPOINT_STORAGE_KEY, endpoint);
 
     const toggle = document.getElementById('fallbackAgentToggle');
     if (toggle) {
-        localStorage.setItem(FALLBACK_STORAGE_KEYS.ENABLED, toggle.checked ? 'true' : 'false');
+        safeStorageSet(FALLBACK_STORAGE_KEYS.ENABLED, toggle.checked ? 'true' : 'false');
     }
 
     const orKeyInput = document.getElementById('openrouterApiKey');
     if (orKeyInput) {
-        localStorage.setItem(FALLBACK_STORAGE_KEYS.OPENROUTER_KEY, orKeyInput.value.trim());
+        safeStorageSet(FALLBACK_STORAGE_KEYS.OPENROUTER_KEY, orKeyInput.value.trim());
     }
 
     const olHostInput = document.getElementById('ollamaHost');
     if (olHostInput) {
-        localStorage.setItem(FALLBACK_STORAGE_KEYS.OLLAMA_HOST, olHostInput.value.trim());
+        safeStorageSet(FALLBACK_STORAGE_KEYS.OLLAMA_HOST, olHostInput.value.trim());
     }
 
     const olKeyInput = document.getElementById('ollamaApiKey');
     if (olKeyInput) {
-        localStorage.setItem(FALLBACK_STORAGE_KEYS.OLLAMA_KEY, olKeyInput.value.trim());
+        safeStorageSet(FALLBACK_STORAGE_KEYS.OLLAMA_KEY, olKeyInput.value.trim());
     }
 
     // Save Student Personalization Profile
@@ -139,7 +159,7 @@ export function saveApiEndpoint() {
 export function skipSetup() {
     state.demoMode = true;
     state.apiEndpoint = '';
-    localStorage.setItem(DEMO_MODE_STORAGE_KEY, 'true');
+    safeStorageSet(DEMO_MODE_STORAGE_KEY, 'true');
     closeApiModal();
 }
 

@@ -68,6 +68,25 @@ import {
     handleExportMenuChoice,
 } from './utils/chatExport.js';
 
+function safeStorageGet(key) {
+    try {
+        return window.localStorage.getItem(key);
+    } catch (error) {
+        console.warn('[Oracle] localStorage read failed:', error);
+        return null;
+    }
+}
+
+function safeStorageSet(key, value) {
+    try {
+        window.localStorage.setItem(key, value);
+        return true;
+    } catch (error) {
+        console.warn('[Oracle] localStorage write failed:', error);
+        return false;
+    }
+}
+
 export function stopGenerating() {
     if (state.activeAbortController) {
         try {
@@ -77,17 +96,9 @@ export function stopGenerating() {
         }
         state.activeAbortController = null;
     }
-    state.isLoading = false;
-    document.getElementById('chatContainer')?.setAttribute('aria-busy', 'false');
-    const sendBtn = document.getElementById('sendButton');
-    if (sendBtn) {
-        sendBtn.disabled = false;
-        sendBtn.innerHTML = '<i data-lucide="send" class="w-5 h-5"></i>';
-        sendBtn.title = 'Send message';
-        sendBtn.setAttribute('aria-label', 'Send message');
-        sendBtn.onclick = () => sendMessage({ allowSpeech: true });
-    }
-    refreshIcons();
+
+    const chatStatus = document.getElementById('chatStatus');
+    if (chatStatus) chatStatus.textContent = 'Stopping response...';
 }
 
 export function handleKeyPress(event) {
@@ -218,7 +229,16 @@ export async function sendMessage(options = {}) {
 
     const assistantId = createMessageId('assistant');
     const assistantShell = renderAssistantShell(assistantId);
-    if (!assistantShell) return;
+    if (!assistantShell) {
+        state.isLoading = false;
+        state.activeAbortController = null;
+        chatContainer?.setAttribute('aria-busy', 'false');
+        if (sendBtn) {
+            sendBtn.disabled = false;
+            sendBtn.onclick = () => sendMessage({ allowSpeech: true });
+        }
+        return;
+    }
 
     const streamRenderer = createStreamRenderer(assistantShell.contentEl);
     refreshIcons();
@@ -231,7 +251,7 @@ export async function sendMessage(options = {}) {
     try {
         let responsePayload;
         if (state.demoMode || !state.apiEndpoint) {
-            responsePayload = await runDemoStream(streamRenderer);
+            responsePayload = await runDemoStream(streamRenderer, state.activeAbortController?.signal);
         } else {
             responsePayload = await callGeminiAPI(message, {
                 onStatus: (statusData) => {
@@ -320,6 +340,7 @@ export async function sendMessage(options = {}) {
         if (chatStatus) chatStatus.textContent = 'Response complete. The answer is in the conversation.';
 
     } catch (err) {
+        streamRenderer.cancel();
         if (err.name === 'AbortError') {
             if (chatStatus) chatStatus.textContent = 'Response generation stopped.';
             const partialText = assistantShell.contentEl.innerText.trim();
@@ -406,73 +427,87 @@ window.addEventListener('load', async () => {
     }
 
     // 1. Initialize IndexedDB conversation store
-    state.store = new ConversationStore();
-    await state.store.init();
-
-    // 2. Migrate any legacy single-conversation localStorage data
-    const migratedId = await migrateOldHistory(state.store);
-
-    // 3. Determine which conversation to restore
-    const savedActiveId = migratedId || localStorage.getItem(ACTIVE_CONV_STORAGE_KEY);
     let restored = false;
+    try {
+        state.store = new ConversationStore();
+        await state.store.init();
 
-    if (savedActiveId) {
-        try {
-            const conv = await state.store.getConversation(savedActiveId);
-            if (conv && conv.messages.length > 0) {
-                state.activeConversation = conv;
-                state.conversationHistory = state.activeConversation.messages;
-                state.chatStarted = true;
-                state.messageCount = conv.messages.length;
-                localStorage.setItem(ACTIVE_CONV_STORAGE_KEY, conv.id);
+        // 2. Migrate any legacy single-conversation localStorage data
+        const migratedId = await migrateOldHistory(state.store);
 
-                const chatContainer = document.getElementById('chatContainer');
-                if (chatContainer) {
-                    chatContainer.innerHTML = '';
-                    for (const msg of conv.messages) {
-                        if (msg.role === 'user') renderUserMessage(msg);
-                        else if (msg.role === 'assistant') renderAssistantMessage(msg);
+        // 3. Determine which conversation to restore
+        const savedActiveId = migratedId || safeStorageGet(ACTIVE_CONV_STORAGE_KEY);
+
+        if (savedActiveId) {
+            try {
+                const conv = await state.store.getConversation(savedActiveId);
+                if (conv && conv.messages.length > 0) {
+                    state.activeConversation = conv;
+                    state.conversationHistory = state.activeConversation.messages;
+                    state.chatStarted = true;
+                    state.messageCount = conv.messages.length;
+                    safeStorageSet(ACTIVE_CONV_STORAGE_KEY, conv.id);
+
+                    const chatContainer = document.getElementById('chatContainer');
+                    if (chatContainer) {
+                        chatContainer.innerHTML = '';
+                        for (const msg of conv.messages) {
+                            if (msg.role === 'user') renderUserMessage(msg);
+                            else if (msg.role === 'assistant') renderAssistantMessage(msg);
+                        }
+                        requestAnimationFrame(() => {
+                            chatContainer.scrollTop = chatContainer.scrollHeight;
+                            updateScrollToBottomButton();
+                        });
                     }
-                    requestAnimationFrame(() => {
-                        chatContainer.scrollTop = chatContainer.scrollHeight;
-                        updateScrollToBottomButton();
-                    });
+                    restored = true;
                 }
-                restored = true;
+            } catch (e) {
+                console.warn('[Oracle] Failed to restore conversation:', e);
             }
-        } catch (e) {
-            console.warn('[Oracle] Failed to restore conversation:', e);
+        }
+    } catch (error) {
+        console.error('[Oracle] Conversation storage unavailable:', error);
+    } finally {
+        // The welcome screen must always render, even when IndexedDB or
+        // localStorage is blocked (private mode, quota, embedded webviews).
+        if (!restored) {
+            if (!state.store) {
+                state.store = new ConversationStore();
+            }
+            state.activeConversation = {
+                id: state.store.generateId(),
+                title: 'New Chat',
+                titled: false,
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                messages: [],
+            };
+            state.conversationHistory = state.activeConversation.messages;
+            safeStorageSet(ACTIVE_CONV_STORAGE_KEY, state.activeConversation.id);
+            renderWelcomeScreen();
         }
     }
 
-    if (!restored) {
-        state.activeConversation = {
-            id: state.store.generateId(),
-            title: 'New Chat',
-            titled: false,
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-            messages: [],
-        };
-        state.conversationHistory = state.activeConversation.messages;
-        localStorage.setItem(ACTIVE_CONV_STORAGE_KEY, state.activeConversation.id);
-        renderWelcomeScreen();
+    try {
+        // 4. Render sidebar with all stored conversations
+        await renderSidebarConversations();
+
+        initializeVoiceFeatures();
+        initializeScrollAffordance();
+        initModalListeners();
+        initPwa();
+        updateProfileUI();
+        refreshIcons();
+
+        // Focus input on desktop only
+        if (window.innerWidth > 768) {
+            document.getElementById('messageInput')?.focus();
+        }
+
+        new ClickSpark();
+    } catch (error) {
+        console.error('[Oracle] Post-load initialization failed:', error);
+        refreshIcons();
     }
-
-    // 4. Render sidebar with all stored conversations
-    await renderSidebarConversations();
-
-    initializeVoiceFeatures();
-    initializeScrollAffordance();
-    initModalListeners();
-    initPwa();
-    updateProfileUI();
-    refreshIcons();
-
-    // Focus input on desktop only
-    if (window.innerWidth > 768) {
-        document.getElementById('messageInput')?.focus();
-    }
-
-    new ClickSpark();
 });

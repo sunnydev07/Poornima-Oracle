@@ -44,8 +44,16 @@ export function createStreamRenderer(contentEl) {
 
     render.flush = (text) => {
         if (renderTimeout) clearTimeout(renderTimeout);
+        renderTimeout = null;
         latestText = text;
         updateDom(latestText);
+    };
+
+    // Drops any pending throttled paint so error/abort UI cannot be overwritten
+    // by a stale render scheduled before the stream failed.
+    render.cancel = () => {
+        if (renderTimeout) clearTimeout(renderTimeout);
+        renderTimeout = null;
     };
 
     return render;

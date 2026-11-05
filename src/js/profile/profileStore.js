@@ -14,13 +14,33 @@ export const DEFAULT_PROFILE = {
     branch: '', // e.g. 'CSE', 'AI-DS', 'ECE', 'Civil'
 };
 
+function safeStorageGet(key, fallback = null) {
+    try {
+        const value = window.localStorage.getItem(key);
+        return value === null ? fallback : value;
+    } catch (error) {
+        console.warn('[Oracle] localStorage read failed:', error);
+        return fallback;
+    }
+}
+
+function safeStorageSet(key, value) {
+    try {
+        window.localStorage.setItem(key, value);
+        return true;
+    } catch (error) {
+        console.warn('[Oracle] localStorage write failed:', error);
+        return false;
+    }
+}
+
 /**
  * Retrieve active student profile with fallback defaults
  */
 export function getStudentProfile() {
+    const raw = safeStorageGet(PROFILE_STORAGE_KEY);
+    if (!raw) return { ...DEFAULT_PROFILE };
     try {
-        const raw = localStorage.getItem(PROFILE_STORAGE_KEY);
-        if (!raw) return { ...DEFAULT_PROFILE };
         const parsed = JSON.parse(raw);
         return {
             college: parsed.college || DEFAULT_PROFILE.college,
@@ -47,7 +67,7 @@ export function saveStudentProfile(updatedData) {
     };
 
     try {
-        localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(updated));
+        safeStorageSet(PROFILE_STORAGE_KEY, JSON.stringify(updated));
     } catch (e) {
         console.warn('[ProfileStore] Failed to save profile to localStorage:', e);
     }

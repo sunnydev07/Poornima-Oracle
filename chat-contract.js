@@ -34,23 +34,20 @@ function cleanStreamText(value, maxChars = MAX_ANSWER_CHARS) {
 
 function normalizeHistory(history = []) {
   if (!Array.isArray(history)) {
-    throw new TypeError('History must be an array of prior user and assistant turns.');
+    return [];
   }
 
   return history
     .slice(-MAX_HISTORY_MESSAGES)
     .map((entry) => {
       if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-        throw new TypeError('Each history turn must include a role and content.');
+        return null;
       }
       if (entry.role !== 'user' && entry.role !== 'assistant') {
-        throw new TypeError('History roles must be "user" or "assistant".');
+        return null;
       }
       if (typeof entry.content !== 'string') {
-        throw new TypeError('History content must be text.');
-      }
-      if (entry.content.length > MAX_HISTORY_MESSAGE_CHARS) {
-        throw new RangeError(`History content must be ${MAX_HISTORY_MESSAGE_CHARS} characters or less.`);
+        return null;
       }
 
       const content = cleanPlainText(entry.content, MAX_HISTORY_MESSAGE_CHARS);

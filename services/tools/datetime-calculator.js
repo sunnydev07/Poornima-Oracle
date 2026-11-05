@@ -4,18 +4,20 @@
  */
 
 function getIstDate() {
-  const now = new Date();
-  // IST offset is UTC+5:30
-  const istOffsetMs = 5.5 * 60 * 60 * 1000;
-  const utc = now.getTime() + now.getTimezoneOffset() * 60 * 1000;
-  return new Date(utc + istOffsetMs);
+  // Return the real instant. IST conversion happens via Intl timeZone options;
+  // manually shifting the clock here would apply the +5:30 offset twice.
+  return new Date();
+}
+
+function getIstDateString(date = new Date()) {
+  return date.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 }
 
 function executeDatetimeCalculator({ operation = 'current_date', startDate, endDate, daysToAdd }) {
   const istNow = getIstDate();
 
   if (operation === 'current_date') {
-    const formattedDate = istNow.toISOString().slice(0, 10);
+    const formattedDate = getIstDateString(istNow);
     const dayOfWeek = istNow.toLocaleDateString('en-IN', { weekday: 'long', timeZone: 'Asia/Kolkata' });
     const formattedTime = istNow.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' });
 
@@ -25,7 +27,7 @@ function executeDatetimeCalculator({ operation = 'current_date', startDate, endD
       currentDate: formattedDate,
       dayOfWeek,
       currentTime: formattedTime,
-      academicYear: `${istNow.getFullYear()}-${istNow.getFullYear() + 1}`,
+      academicYear: `${formattedDate.slice(0, 4)}-${Number(formattedDate.slice(0, 4)) + 1}`,
     };
   }
 
@@ -37,8 +39,8 @@ function executeDatetimeCalculator({ operation = 'current_date', startDate, endD
       };
     }
 
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    const start = new Date(`${startDate}T00:00:00Z`);
+    const end = new Date(`${endDate}T00:00:00Z`);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
       return {
         success: false,
@@ -59,7 +61,14 @@ function executeDatetimeCalculator({ operation = 'current_date', startDate, endD
   }
 
   if (operation === 'add_days') {
-    const base = startDate ? new Date(startDate) : istNow;
+    const base = startDate ? new Date(`${startDate}T00:00:00Z`) : new Date(`${getIstDateString(istNow)}T00:00:00Z`);
+    if (Number.isNaN(base.getTime())) {
+      return {
+        success: false,
+        error: 'Invalid startDate format. Use YYYY-MM-DD.',
+      };
+    }
+
     const days = Number.parseInt(daysToAdd, 10) || 0;
     const target = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
 
@@ -68,7 +77,7 @@ function executeDatetimeCalculator({ operation = 'current_date', startDate, endD
       baseDate: base.toISOString().slice(0, 10),
       daysAdded: days,
       resultDate: target.toISOString().slice(0, 10),
-      dayOfWeek: target.toLocaleDateString('en-IN', { weekday: 'long', timeZone: 'Asia/Kolkata' }),
+      dayOfWeek: target.toLocaleDateString('en-IN', { weekday: 'long', timeZone: 'UTC' }),
     };
   }
 
@@ -81,4 +90,5 @@ function executeDatetimeCalculator({ operation = 'current_date', startDate, endD
 module.exports = {
   executeDatetimeCalculator,
   getIstDate,
+  getIstDateString,
 };

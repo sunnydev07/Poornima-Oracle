@@ -6,6 +6,49 @@ import { state } from '../state.js';
 import { ensureApiEndpoint, FALLBACK_STORAGE_KEYS } from '../config.js';
 import { getStudentProfile } from '../profile/profileStore.js';
 
+const MAX_CLIENT_HISTORY_TURNS = 8;
+const MAX_CLIENT_TURN_CHARS = 2000;
+
+function readStorageSetting(key, fallback = '') {
+    try {
+        const value = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+        return value === null ? fallback : value;
+    } catch {
+        return fallback;
+    }
+}
+
+function getPriorHistory(conversationHistory, message) {
+    const history = Array.isArray(conversationHistory) ? conversationHistory.slice() : [];
+    const last = history[history.length - 1];
+    if (last?.role === 'user' && String(last.content || '').trim() === String(message || '').trim()) {
+        history.pop();
+    }
+    return history;
+}
+
+export function buildChatPayload(message, conversationHistory) {
+    const priorHistory = getPriorHistory(conversationHistory, message);
+    const contract = typeof window !== 'undefined' ? window.PoornimaChatContract : null;
+
+    if (contract && typeof contract.buildChatRequestPayload === 'function') {
+        return contract.buildChatRequestPayload(message, priorHistory);
+    }
+
+    // Fallback keeps the request below the server's 32 KB body limit even if the
+    // shared contract script failed to load.
+    return {
+        message: String(message || '').slice(0, MAX_CLIENT_TURN_CHARS),
+        history: priorHistory
+            .slice(-MAX_CLIENT_HISTORY_TURNS)
+            .map(({ role, content }) => ({
+                role: role === 'user' ? 'user' : 'assistant',
+                content: String(content || '').slice(0, MAX_CLIENT_TURN_CHARS),
+            }))
+            .filter((entry) => entry.content),
+    };
+}
+
 export function parseSseEvent(block) {
     const lines = block.split(/\r?\n/);
     let event = 'message';
@@ -28,10 +71,15 @@ export function parseSseEvent(block) {
     }
 }
 
-export async function runDemoStream(render) {
+export async function runDemoStream(render, signal) {
     const answer = 'I am currently in **Demo Mode**. Please configure a backend API endpoint to stream Poornima Oracle answers with citations.';
     let rendered = '';
     for (const token of answer.split(/(\s+)/)) {
+        if (signal?.aborted) {
+            const abortError = new Error('Generation stopped.');
+            abortError.name = 'AbortError';
+            throw abortError;
+        }
         rendered += token;
         render(rendered);
         await new Promise((resolve) => window.setTimeout(resolve, 35));
@@ -48,10 +96,10 @@ export async function callGeminiAPI(message, handlers = {}) {
     if (!state.apiEndpoint) throw new Error('API endpoint not configured.');
     const fetchSignal = state.activeAbortController ? state.activeAbortController.signal : undefined;
 
-    const fallbackEnabled = localStorage.getItem(FALLBACK_STORAGE_KEYS.ENABLED) !== 'false';
-    const openrouterKey = (localStorage.getItem(FALLBACK_STORAGE_KEYS.OPENROUTER_KEY) || '').trim();
-    const ollamaKey = (localStorage.getItem(FALLBACK_STORAGE_KEYS.OLLAMA_KEY) || '').trim();
-    const ollamaHost = (localStorage.getItem(FALLBACK_STORAGE_KEYS.OLLAMA_HOST) || '').trim();
+    const fallbackEnabled = readStorageSetting(FALLBACK_STORAGE_KEYS.ENABLED, 'true') !== 'false';
+    const openrouterKey = (readStorageSetting(FALLBACK_STORAGE_KEYS.OPENROUTER_KEY) || '').trim();
+    const ollamaKey = (readStorageSetting(FALLBACK_STORAGE_KEYS.OLLAMA_KEY) || '').trim();
+    const ollamaHost = (readStorageSetting(FALLBACK_STORAGE_KEYS.OLLAMA_HOST) || '').trim();
 
     const headers = {
         'Content-Type': 'application/json',
@@ -61,20 +109,30 @@ export async function callGeminiAPI(message, handlers = {}) {
     if (ollamaKey) headers['x-ollama-key'] = ollamaKey;
     if (ollamaHost) headers['x-ollama-host'] = ollamaHost;
 
+    const payload = buildChatPayload(message, state.conversationHistory);
+    payload.profile = getStudentProfile();
+
     const resp = await fetch(state.apiEndpoint, {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-            message: message,
-            history: state.conversationHistory,
-            profile: getStudentProfile(),
-        }),
+        body: JSON.stringify(payload),
         signal: fetchSignal,
     });
 
     if (!resp.ok) {
-        const txt = await resp.text().catch(() => null);
-        throw new Error(txt || `Request failed: ${resp.status}`);
+        const contentType = resp.headers.get('content-type') || '';
+        let detail = '';
+
+        if (contentType.includes('application/json')) {
+            const data = await resp.json().catch(() => null);
+            detail = typeof data?.error === 'string' ? data.error : '';
+        }
+
+        if (resp.status === 413) {
+            throw new Error('This conversation is too long to send. Start a new chat to continue.');
+        }
+
+        throw new Error(detail || `Request failed: ${resp.status}`);
     }
 
     const contentType = resp.headers.get('content-type') || '';

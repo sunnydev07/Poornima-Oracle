@@ -603,10 +603,7 @@ async function upsertToNoticesNamespace(index, vectors) {
     const batch = vectors.slice(i, i + UPSERT_BATCH_SIZE);
 
     try {
-      await index.upsert({
-        records: batch,
-        namespace: NOTICES_NAMESPACE,
-      });
+      await index.namespace(NOTICES_NAMESPACE).upsert(batch);
       totalUpserted += batch.length;
       console.log(`[NoticeCrawler] Upserted batch ${Math.floor(i / UPSERT_BATCH_SIZE) + 1}: ${batch.length} vectors`);
     } catch (err) {

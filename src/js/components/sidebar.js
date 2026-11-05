@@ -9,6 +9,16 @@ import { renderWelcomeScreen } from './welcomeScreen.js';
 import { stopSpeechRecognition } from '../audio/speechRecognition.js';
 import { stopCurrentSpeech } from '../audio/speechSynthesizer.js';
 
+function safeStorageSet(key, value) {
+    try {
+        window.localStorage.setItem(key, value);
+        return true;
+    } catch (error) {
+        console.warn('[Oracle] localStorage write failed:', error);
+        return false;
+    }
+}
+
 export function syncSidebarAccessibility() {
     const sidebar = document.getElementById('sidebar');
     const main = document.getElementById('mainChat');
@@ -180,7 +190,7 @@ export async function handleSwitchConversation(id) {
 
         state.activeConversation = conv;
         state.conversationHistory = state.activeConversation.messages;
-        localStorage.setItem(ACTIVE_CONV_STORAGE_KEY, id);
+        safeStorageSet(ACTIVE_CONV_STORAGE_KEY, id);
         state.chatStarted = conv.messages.length > 0;
         state.messageCount = conv.messages.length;
         state.isLoading = false;
@@ -266,7 +276,7 @@ export async function startNewChat() {
         messages: [],
     };
     state.conversationHistory = state.activeConversation.messages;
-    localStorage.setItem(ACTIVE_CONV_STORAGE_KEY, state.activeConversation.id);
+    safeStorageSet(ACTIVE_CONV_STORAGE_KEY, state.activeConversation.id);
 
     const chatContainer = document.getElementById('chatContainer');
     if (chatContainer) chatContainer.innerHTML = '';

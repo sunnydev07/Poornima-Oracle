@@ -362,11 +362,18 @@ async function getUpcomingCalendarEvents(options = {}) {
   const college = (options.college || 'ALL').toUpperCase();
   const category = (options.category || 'all').toLowerCase();
   const limit = Math.min(Math.max(Number.parseInt(options.limit || '10', 10), 1), 50);
+  const daysAhead = Number.parseInt(options.daysAhead, 10);
+  const hasDaysAhead = Number.isFinite(daysAhead) && daysAhead > 0;
 
   // Filter events from today onward
   let filtered = rawEvents
     .filter((ev) => ev.startDate >= todayStr)
     .map((ev) => enrichEventWithCountdown(ev, todayStr));
+
+  // Filter by rolling window
+  if (hasDaysAhead) {
+    filtered = filtered.filter((ev) => ev.daysRemaining <= daysAhead);
+  }
 
   // Filter by college
   if (college !== 'ALL') {
@@ -385,7 +392,9 @@ async function getUpcomingCalendarEvents(options = {}) {
   const allCollegeUpcoming = rawEvents
     .filter((ev) => ev.startDate >= todayStr)
     .filter((ev) => college === 'ALL' || ev.college === college || ev.college === 'GENERAL')
-    .map((ev) => enrichEventWithCountdown(ev, todayStr));
+    .map((ev) => enrichEventWithCountdown(ev, todayStr))
+    .filter((ev) => !hasDaysAhead || ev.daysRemaining <= daysAhead)
+    .sort((a, b) => a.startDate.localeCompare(b.startDate));
 
   const counts = {
     total: allCollegeUpcoming.length,
@@ -419,8 +428,15 @@ async function getUpcomingCalendarEvents(options = {}) {
  * @returns {Promise<string>}
  */
 async function getCalendarContextForPrompt(college = 'GENERAL', limit = 5) {
+  const normalizedCollege = typeof college === 'string' ? college.trim().toUpperCase() : '';
+  if (!['PU', 'PCE', 'PIET', 'GENERAL', 'ALL'].includes(normalizedCollege)) {
+    throw new TypeError(`Unsupported college value for calendar context: ${String(college)}`);
+  }
+
+  const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 5, 1), 10);
+
   try {
-    const data = await getUpcomingCalendarEvents({ college, limit });
+    const data = await getUpcomingCalendarEvents({ college: normalizedCollege, limit: safeLimit });
     if (!data.upcoming || data.upcoming.length === 0) return '';
 
     const lines = [
@@ -431,7 +447,7 @@ async function getCalendarContextForPrompt(college = 'GENERAL', limit = 5) {
       lines.push(`- NEXT EXAM: ${data.nextExam.title} on ${data.nextExam.startDate} (${data.nextExam.countdownLabel})`);
     }
 
-    for (const ev of data.upcoming.slice(0, limit)) {
+    for (const ev of data.upcoming.slice(0, safeLimit)) {
       lines.push(`- [${ev.category.toUpperCase()}] ${ev.title} | Date: ${ev.startDate} (${ev.countdownLabel}) | Campus: ${ev.college}`);
     }
 

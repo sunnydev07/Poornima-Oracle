@@ -93,7 +93,7 @@ test('PWA assets keep the current offline shell and Liquid Glass app icon', () =
 
   assert.equal(manifest.name, 'Poornima Oracle');
   assert.ok(manifest.icons.some((icon) => icon.src === './poornima-oracle.svg'));
-  assert.match(serviceWorker, /poornima-oracle-v4/);
+  assert.match(serviceWorker, /const CACHE_NAME = 'poornima-oracle-v\d+';/);
   assert.match(serviceWorker, /\.\/chat-contract\.js/);
   assert.match(serviceWorker, /\.\/chat-request-owner\.js/);
   assert.match(serviceWorker, /\/api\//);

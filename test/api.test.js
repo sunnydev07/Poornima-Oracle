@@ -1,3 +1,11 @@
+/**
+ * Phase 2 test suite (not part of `npm test`).
+ *
+ * These tests require a `createApp({...})` factory with injectable providers and
+ * a non-listening module export. The current server starts listening at import
+ * time, so this file is quarantined behind `npm run test:api` until that
+ * refactor lands.
+ */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');

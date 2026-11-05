@@ -209,8 +209,16 @@ export const ALL_PROMPTS = [
 ];
 
 export function ensureApiEndpoint() {
-    const hasLocalStorage = typeof localStorage !== 'undefined';
-    const storedEndpoint = hasLocalStorage ? localStorage.getItem(GEMINI_ENDPOINT_STORAGE_KEY) : null;
+    let storedEndpoint = null;
+    try {
+        storedEndpoint = typeof localStorage !== 'undefined'
+            ? localStorage.getItem(GEMINI_ENDPOINT_STORAGE_KEY)
+            : null;
+    } catch {
+        // Storage can be blocked in private mode or embedded webviews.
+        storedEndpoint = null;
+    }
+
     const normalizedStoredEndpoint = typeof storedEndpoint === 'string' ? storedEndpoint.trim() : '';
 
     // Auto-heal stale or broken endpoint:
@@ -221,12 +229,12 @@ export function ensureApiEndpoint() {
     let endpoint = normalizedStoredEndpoint;
     if (!normalizedStoredEndpoint || isStaleGitHubEndpoint) {
         endpoint = getDefaultApiEndpoint();
-        if (hasLocalStorage) {
-            try {
+        try {
+            if (typeof localStorage !== 'undefined') {
                 localStorage.setItem(GEMINI_ENDPOINT_STORAGE_KEY, endpoint);
-            } catch {
-                // Ignore storage quota or security errors
             }
+        } catch {
+            // Ignore storage quota or security errors
         }
     }
 

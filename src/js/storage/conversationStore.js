@@ -3,6 +3,36 @@
  */
 import { HISTORY_STORAGE_KEY } from '../config.js';
 
+function safeStorageGet(key, fallback = null) {
+    try {
+        const value = window.localStorage.getItem(key);
+        return value === null ? fallback : value;
+    } catch (error) {
+        console.warn('[Oracle] localStorage read failed:', error);
+        return fallback;
+    }
+}
+
+function safeStorageSet(key, value) {
+    try {
+        window.localStorage.setItem(key, value);
+        return true;
+    } catch (error) {
+        console.warn('[Oracle] localStorage write failed:', error);
+        return false;
+    }
+}
+
+function safeStorageRemove(key) {
+    try {
+        window.localStorage.removeItem(key);
+        return true;
+    } catch (error) {
+        console.warn('[Oracle] localStorage remove failed:', error);
+        return false;
+    }
+}
+
 export class ConversationStore {
     constructor() {
         this.dbName = 'poornima-oracle-db';
@@ -94,7 +124,7 @@ export class ConversationStore {
     async deleteConversation(id) {
         if (this._fallback || !this.db) {
             const all = this._fbLoad().filter((c) => c.id !== id);
-            localStorage.setItem('poornimaOracleConversations', JSON.stringify(all));
+            safeStorageSet('poornimaOracleConversations', JSON.stringify(all));
             return;
         }
         return new Promise((resolve, reject) => {
@@ -110,13 +140,17 @@ export class ConversationStore {
         const idx = all.findIndex((c) => c.id === conv.id);
         if (idx >= 0) all[idx] = conv;
         else all.unshift(conv);
-        localStorage.setItem('poornimaOracleConversations', JSON.stringify(all));
+        safeStorageSet('poornimaOracleConversations', JSON.stringify(all));
     }
 
     _fbLoad() {
         try {
-            return JSON.parse(localStorage.getItem('poornimaOracleConversations') || '[]');
+            const raw = safeStorageGet('poornimaOracleConversations');
+            if (!raw) return [];
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : [];
         } catch (e) {
+            console.warn('[Oracle] Failed to parse stored conversations:', e);
             return [];
         }
     }
@@ -124,12 +158,12 @@ export class ConversationStore {
 
 export async function migrateOldHistory(store) {
     if (typeof localStorage === 'undefined') return null;
-    const oldData = localStorage.getItem(HISTORY_STORAGE_KEY);
+    const oldData = safeStorageGet(HISTORY_STORAGE_KEY);
     if (!oldData) return null;
     try {
         const messages = JSON.parse(oldData);
         if (!Array.isArray(messages) || messages.length === 0) {
-            localStorage.removeItem(HISTORY_STORAGE_KEY);
+            safeStorageRemove(HISTORY_STORAGE_KEY);
             return null;
         }
         const firstUserMsg = messages.find((m) => m.role === 'user');
@@ -142,7 +176,7 @@ export async function migrateOldHistory(store) {
             messages,
         };
         await store.saveConversation(conv);
-        localStorage.removeItem(HISTORY_STORAGE_KEY);
+        safeStorageRemove(HISTORY_STORAGE_KEY);
         console.log('[Oracle] Migrated old history to IndexedDB.');
         return conv.id;
     } catch (e) {

@@ -16,6 +16,26 @@ import { getCalendarEndpoint } from '../config.js';
 
 const STORAGE_COLLAPSED_KEY = 'poornima_calendar_widget_collapsed';
 
+function safeStorageGet(key, fallback = null) {
+  try {
+    const value = window.localStorage.getItem(key);
+    return value === null ? fallback : value;
+  } catch (error) {
+    console.warn('[Oracle] localStorage read failed:', error);
+    return fallback;
+  }
+}
+
+function safeStorageSet(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+    return true;
+  } catch (error) {
+    console.warn('[Oracle] localStorage write failed:', error);
+    return false;
+  }
+}
+
 // Fallback events if server API is unreachable or in demo mode
 const FALLBACK_EVENTS = [
   {
@@ -61,15 +81,11 @@ let showAllEvents = false;
  * Check if the widget is currently collapsed (defaults to true)
  */
 export function isCalendarCollapsed() {
-  try {
-    const saved = localStorage.getItem(STORAGE_COLLAPSED_KEY);
-    if (saved === null) {
-      return true; // Collapsed by default
-    }
-    return saved === 'true';
-  } catch {
-    return true;
+  const saved = safeStorageGet(STORAGE_COLLAPSED_KEY);
+  if (saved === null) {
+    return true; // Collapsed by default
   }
+  return saved === 'true';
 }
 
 /**
@@ -77,11 +93,7 @@ export function isCalendarCollapsed() {
  */
 export function toggleCalendarCollapsed() {
   const willCollapse = !isCalendarCollapsed();
-  try {
-    localStorage.setItem(STORAGE_COLLAPSED_KEY, willCollapse ? 'true' : 'false');
-  } catch {
-    // ignore
-  }
+  safeStorageSet(STORAGE_COLLAPSED_KEY, willCollapse ? 'true' : 'false');
 
   const container = document.getElementById('upcomingCalendarWidget');
   if (!container) return;

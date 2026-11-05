@@ -16,6 +16,7 @@
     "check:client": "node scripts/check-client.js",
     "check:css": "npm run build:css && git diff --exit-code -- styles.css",
     "test": "node --test test/browser-modules.test.js test/chat-contract.test.js test/chat-request-owner.test.js",
+    "test:api": "node --test test/api.test.js",
     "test:pinecone": "node test-pinecone.js",
     "test:pdf": "node test-pdf-extractor.js",
     "test:calendar": "node test-calendar-service.js",
