@@ -373,18 +373,56 @@ npm run test:calendar
 ### Frontend (GitHub Pages)
 The static frontend is deployed by [`.github/workflows/static.yml`](.github/workflows/static.yml). Every push to `main` publishes `index.html`, `styles.css`, and `src/` to GitHub Pages.
 
-### Backend (Render Blueprint)
-The repo ships a [`render.yaml`](render.yaml) Blueprint that provisions the production web service:
+### Backend (Google Cloud Run)
+The repo ships a [`Dockerfile`](Dockerfile) and [`cloudbuild.yaml`](cloudbuild.yaml) for deployment to Google Cloud Run (managed, unauthenticated so the browser can call it).
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/sunnydev07/Poornima-Oracle)
+**Prerequisites:** `gcloud` CLI authenticated, billing enabled, and the Cloud Run / Cloud Build / Secret Manager APIs enabled in your GCP project.
 
-1. Click the button and sign in to Render.
-2. Select the workspace and grant Render access to the repository when prompted.
-3. Enter `GEMINI_API_KEY` and `PINECONE_API_KEY` (copy them from your local `.env`); Render generates `ADMIN_API_KEY`.
-4. Apply the Blueprint and wait for the `/api/health` check to pass.
-5. The default service URL is `https://poornima-oracle-api.onrender.com`. The GitHub Pages frontend uses it by default, and browsers that cached the suspended URL are migrated automatically.
+```bash
+gcloud config set project YOUR_PROJECT_ID
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com secretmanager.googleapis.com
+```
 
-The Blueprint sets `CORS_ORIGIN=https://sunnydev07.github.io` and `TRUST_PROXY_HOPS=1` because Render terminates TLS and overwrites `X-Forwarded-For`. The free plan sleeps after 15 minutes of inactivity; switch the service to the Starter plan for an always-warm instance.
+**1. Store secrets in Secret Manager** (never commit these):
+
+```bash
+echo -n "your_gemini_key"   | gcloud secrets create gemini-api-key --data-file=-
+echo -n "your_pinecone_key" | gcloud secrets create pinecone-api-key --data-file=-
+echo -n "your_admin_secret" | gcloud secrets create admin-api-key --data-file=-
+```
+
+Copy `GEMINI_API_KEY` and `PINECONE_API_KEY` from your local `.env`. `ADMIN_API_KEY` can be any long random string.
+
+**2. Build and deploy:**
+
+```bash
+gcloud builds submit --config cloudbuild.yaml
+```
+
+Cloud Run returns a service URL like `https://poornima-oracle-xxxx-a4.run.app`. Note it — you'll need it in the next step.
+
+**3. Point the frontend at the new backend.**
+
+Open [`src/js/config.js`](src/js/config.js) and change `RENDER_BACKEND_ORIGIN` to your Cloud Run URL:
+
+```js
+export const RENDER_BACKEND_ORIGIN = 'https://poornima-oracle-xxxx-a4.run.app';
+```
+
+Commit and push — GitHub Pages redeploys automatically, and the new endpoint goes live. Returning visitors that still have the old suspended URL cached in `localStorage` are migrated automatically.
+
+**Env vars applied by `cloudbuild.yaml`:**
+
+| Variable | Value | Notes |
+|---|---|---|
+| `CORS_ORIGIN` | `https://sunnydev07.github.io` | Allows the GitHub Pages frontend |
+| `TRUST_PROXY_HOPS` | `1` | Cloud Run terminates TLS and sets `X-Forwarded-For` |
+| `PINECONE_INDEX_NAME` | `poornima-oracle` | Your existing Pinecone index (75 notice vectors already populated) |
+| `GEMINI_API_KEY` | Secret Manager | From your local `.env` |
+| `PINECONE_API_KEY` | Secret Manager | From your local `.env` |
+| `ADMIN_API_KEY` | Secret Manager | Required for `/api/sync-notices` and `/api/test-models` |
+
+Cloud Run scales to zero on the free tier; with a paid plan you can set min instances to keep it warm.
 
 ### Backend (Railway / Cloud Run / VPS)
 The backend also runs anywhere Node.js 20+ is available:
