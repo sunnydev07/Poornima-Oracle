@@ -9,6 +9,7 @@ import { renderSourceChips } from './sourceChips.js';
 import { renderToolTrayHtml, renderFallbackBadgeHtml } from './toolTray.js';
 import { renderFeedbackControls } from '../api/feedback.js';
 import { stopCurrentSpeech } from '../audio/speechSynthesizer.js';
+import { saveConversationHistory } from '../storage/conversationStore.js';
 
 export function createMessageId(prefix) {
     return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -20,10 +21,10 @@ export function renderUserMessage(message) {
 
     const userMsgHTML = `
         <div class="flex justify-end mb-6 animate-slide-in" data-message-id="${escapeHtml(message.id || '')}">
-            <div class="max-w-[85%] md:max-w-[70%] bg-white text-black p-3 md:p-4 rounded-2xl rounded-br-sm shadow-lg">
+            <div class="spatial-user-bubble max-w-[85%] md:max-w-[70%] p-3 md:p-4 rounded-[24px] rounded-br-md">
                 <p class="text-sm md:text-base leading-relaxed font-medium">${escapeHtml(message.content)}</p>
             </div>
-            <div class="w-8 h-8 rounded-lg bg-white flex items-center justify-center ml-2 md:ml-3 mt-auto mb-1 shadow-md shrink-0">
+            <div class="liquid-icon-well w-8 h-8 rounded-full bg-white flex items-center justify-center ml-2 md:ml-3 mt-auto mb-1 shadow-md shrink-0">
                 <i data-lucide="user" class="w-5 h-5 text-black"></i>
             </div>
         </div>`;
@@ -36,13 +37,13 @@ export function renderAssistantShell(messageId) {
 
     const aiMsgHTML = `
         <div class="flex justify-start mb-6 animate-slide-in" data-message-id="${escapeHtml(messageId)}">
-            <div class="w-8 h-8 rounded-lg bg-zinc-800 border border-white/10 flex items-center justify-center mr-2 md:mr-3 mt-auto mb-1 shrink-0">
+            <div class="liquid-icon-well w-8 h-8 rounded-full bg-zinc-800 border border-white/10 flex items-center justify-center mr-2 md:mr-3 mt-auto mb-1 shrink-0">
                 <i data-lucide="bot" class="w-5 h-5 text-cyan-400"></i>
             </div>
             <div class="group max-w-[85%] md:max-w-[70%]">
                 <div data-fallback-badge-container></div>
                 <div data-tool-tray-container></div>
-                <div class="bg-zinc-800/80 border border-white/5 text-zinc-200 p-3 md:p-4 rounded-2xl rounded-bl-sm shadow-sm text-sm md:text-base">
+                <div class="spatial-assistant-card liquid-glass liquid-glass-rim text-zinc-200 p-4 md:p-5 rounded-[26px] rounded-bl-md shadow-sm text-sm md:text-base">
                     <div class="ai-markdown" data-ai-content role="status" aria-live="polite">
                         <div class="flex items-center h-6"><div class="typing-shimmer h-1.5 w-24 rounded-full"></div></div>
                     </div>
@@ -88,17 +89,17 @@ export function renderAssistantActionBar(messageId) {
     const safeMessageId = escapeHtml(messageId);
 
     return `
-        <div class="assistant-action-bar flex md:opacity-0 md:group-hover:opacity-100 transition mt-2 ml-1 items-center gap-2 text-xs text-zinc-500">
-            <button type="button" class="relative inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 font-medium hover:bg-white/10 hover:text-white transition" aria-label="Copy response" onclick="copyAssistantMessage('${safeMessageId}', this)">
+        <div class="assistant-action-bar liquid-capsule mt-2 ml-1 inline-flex flex-wrap items-center gap-1 p-1 text-xs text-zinc-300 opacity-100 transition md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+            <button type="button" class="relative inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 py-2 font-medium hover:bg-white/10 hover:text-white transition" aria-label="Copy response" onclick="copyAssistantMessage('${safeMessageId}', this)">
                 <i data-lucide="copy" class="w-4 h-4"></i>
                 <span>Copy</span>
                 <span class="copy-tooltip" data-copy-tooltip>Copied!</span>
             </button>
-            <button type="button" class="speech-button inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 font-medium hover:bg-white/10 hover:text-white transition" aria-label="Read response aloud" aria-pressed="false" data-speech-for="${safeMessageId}" data-speech-label="true" onclick="readAssistantMessage('${safeMessageId}')">
+            <button type="button" class="speech-button inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 py-2 font-medium hover:bg-white/10 hover:text-white transition" aria-label="Read response aloud" aria-pressed="false" data-speech-for="${safeMessageId}" data-speech-label="true" onclick="readAssistantMessage('${safeMessageId}')">
                 <i data-lucide="volume-2" class="w-4 h-4"></i>
                 <span>Read Aloud</span>
             </button>
-            <button type="button" class="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 font-medium hover:bg-white/10 hover:text-white transition" aria-label="Regenerate response" onclick="regenerateAssistantMessage('${safeMessageId}')">
+            <button type="button" class="inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 py-2 font-medium hover:bg-white/10 hover:text-white transition" aria-label="Regenerate response" onclick="regenerateAssistantMessage('${safeMessageId}')">
                 <i data-lucide="refresh-cw" class="w-4 h-4"></i>
                 <span>Regenerate</span>
             </button>
@@ -122,30 +123,48 @@ export async function copyAssistantMessage(messageId, button) {
     }
 }
 
-export function getAssistantQuestion(messageId) {
-    const messageIndex = state.conversationHistory.findIndex((item) => item.id === messageId && item.role === 'assistant');
-    if (messageIndex === -1) return '';
+export function buildRegenerationState(messages, messageId) {
+    const currentMessages = Array.isArray(messages) ? messages : [];
+    const assistantIndex = currentMessages.findIndex((message) => (
+        message?.id === messageId && message?.role === 'assistant'
+    ));
+    if (assistantIndex === -1) return null;
 
-    const message = state.conversationHistory[messageIndex];
-    if (message.question) return message.question;
+    const assistantMessage = currentMessages[assistantIndex];
+    const previousMessage = currentMessages[assistantIndex - 1];
+    const pairedUserIndex = previousMessage?.role === 'user' ? assistantIndex - 1 : -1;
+    const question = String(assistantMessage.question || previousMessage?.content || '').trim();
+    if (!question) return null;
 
-    for (let index = messageIndex - 1; index >= 0; index--) {
-        if (state.conversationHistory[index]?.role === 'user') {
-            return state.conversationHistory[index].content || '';
-        }
-    }
-
-    return '';
+    const removedIndexes = new Set([assistantIndex, pairedUserIndex].filter((index) => index >= 0));
+    return {
+        question,
+        messages: currentMessages.filter((_, index) => !removedIndexes.has(index)),
+        removedIds: [...removedIndexes]
+            .sort((first, second) => first - second)
+            .map((index) => currentMessages[index]?.id)
+            .filter(Boolean),
+    };
 }
 
 export async function regenerateAssistantMessage(messageId) {
     if (state.isLoading) return;
 
-    const question = getAssistantQuestion(messageId).trim();
-    if (!question) return;
+    const regeneration = buildRegenerationState(state.conversationHistory, messageId);
+    if (!regeneration) return;
+
+    state.conversationHistory = regeneration.messages;
+    if (state.activeConversation) {
+        state.activeConversation.messages = state.conversationHistory;
+        state.activeConversation.updatedAt = Date.now();
+        saveConversationHistory(state.store, state.activeConversation);
+    }
+    regeneration.removedIds.forEach((id) => {
+        if (id) document.querySelector(`[data-message-id="${CSS.escape(id)}"]`)?.remove();
+    });
 
     stopCurrentSpeech();
     if (typeof window.sendMessage === 'function') {
-        await window.sendMessage({ allowSpeech: true, message: question });
+        await window.sendMessage({ allowSpeech: true, message: regeneration.question });
     }
 }

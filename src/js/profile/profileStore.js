@@ -104,6 +104,10 @@ export function formatProfileBadgeText(profile = getStudentProfile()) {
  */
 export function updateProfileUI() {
     const profile = getStudentProfile();
+    const activeCampus = profile.college === 'GENERAL' ? 'ALL' : profile.college;
+    document.querySelectorAll('[data-campus-pill]').forEach((button) => {
+        button.setAttribute('aria-pressed', String(button.dataset.campusPill === activeCampus));
+    });
     const pillText = document.getElementById('profilePillText');
     if (pillText) {
         pillText.textContent = formatProfileBadgeText(profile);
@@ -139,6 +143,12 @@ export function updateProfileUI() {
     if (branchInput) branchInput.value = profile.branch || '';
 
     refreshIcons();
+}
+
+export function setQuickCampus(campus) {
+    const college = campus === 'ALL' ? 'GENERAL' : campus;
+    if (!['GENERAL', 'PU', 'PCE', 'PIET'].includes(college)) return;
+    saveStudentProfile({ college });
 }
 
 /**

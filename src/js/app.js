@@ -44,6 +44,7 @@ import {
     closeMobileSidebar,
     toggleSidebarDesktop,
     startNewChat,
+    syncSidebarAccessibility,
 } from './components/sidebar.js';
 import { renderSourceChips } from './components/sourceChips.js';
 import { renderToolTrayHtml, toggleToolTray, renderFallbackBadgeHtml } from './components/toolTray.js';
@@ -60,7 +61,7 @@ import { renderWelcomeScreen, sendSuggestion } from './components/welcomeScreen.
 import { submitFeedback, renderFeedbackControls } from './api/feedback.js';
 import { callGeminiAPI, runDemoStream } from './api/sseClient.js';
 import { initPwa, triggerInstallPrompt } from './pwa/installPrompt.js';
-import { updateProfileUI, openProfileModal } from './profile/profileStore.js';
+import { updateProfileUI, openProfileModal, setQuickCampus } from './profile/profileStore.js';
 import {
     exportActiveConversation,
     handleExportConversation,
@@ -77,6 +78,7 @@ export function stopGenerating() {
         state.activeAbortController = null;
     }
     state.isLoading = false;
+    document.getElementById('chatContainer')?.setAttribute('aria-busy', 'false');
     const sendBtn = document.getElementById('sendButton');
     if (sendBtn) {
         sendBtn.disabled = false;
@@ -175,6 +177,9 @@ export async function sendMessage(options = {}) {
 
     state.messageCount++;
     state.isLoading = true;
+    chatContainer?.setAttribute('aria-busy', 'true');
+    const chatStatus = document.getElementById('chatStatus');
+    if (chatStatus) chatStatus.textContent = 'Generating response...';
 
     const sendBtn = document.getElementById('sendButton');
     if (sendBtn) {
@@ -312,9 +317,11 @@ export async function sendMessage(options = {}) {
         assistantShell.actionEl.innerHTML = renderAssistantActionBar(assistantId);
         refreshIcons();
         maybeAutoReadAssistantMessage(assistantId);
+        if (chatStatus) chatStatus.textContent = 'Response complete. The answer is in the conversation.';
 
     } catch (err) {
         if (err.name === 'AbortError') {
+            if (chatStatus) chatStatus.textContent = 'Response generation stopped.';
             const partialText = assistantShell.contentEl.innerText.trim();
             if (!partialText) {
                 assistantShell.wrapper.remove();
@@ -322,6 +329,7 @@ export async function sendMessage(options = {}) {
                 assistantShell.contentEl.insertAdjacentHTML('beforeend', '<p class="text-xs text-zinc-500 italic mt-2">[Generation stopped]</p>');
             }
         } else {
+            if (chatStatus) chatStatus.textContent = 'Response could not be generated.';
             const errHTML = `<div class="mt-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 px-3 py-2 rounded-xl text-xs flex items-center justify-between">
                 <span>Error: ${escapeHtml(err.message)}</span>
                 <button type="button" onclick="regenerateAssistantMessage('${escapeHtml(assistantId)}')" class="underline hover:text-rose-300 ml-2">Retry</button>
@@ -331,6 +339,7 @@ export async function sendMessage(options = {}) {
     } finally {
         state.isLoading = false;
         state.activeAbortController = null;
+        chatContainer?.setAttribute('aria-busy', 'false');
         if (sendBtn) {
             sendBtn.disabled = false;
             sendBtn.innerHTML = '<i data-lucide="send" class="w-5 h-5"></i>';
@@ -371,6 +380,7 @@ window.skipSetup = skipSetup;
 window.openMobileSidebar = openMobileSidebar;
 window.closeMobileSidebar = closeMobileSidebar;
 window.toggleSidebarDesktop = toggleSidebarDesktop;
+window.syncSidebarAccessibility = syncSidebarAccessibility;
 window.startNewChat = startNewChat;
 window.handleSwitchConversation = handleSwitchConversation;
 window.handleDeleteConversation = handleDeleteConversation;
@@ -379,10 +389,12 @@ window.handleExportConversation = handleExportConversation;
 window.handleExportMenuChoice = handleExportMenuChoice;
 window.triggerInstallPrompt = triggerInstallPrompt;
 window.openProfileModal = openProfileModal;
+window.setQuickCampus = setQuickCampus;
 
 // Application Initialization
 window.addEventListener('load', async () => {
     refreshIcons();
+    syncSidebarAccessibility();
     if (window.marked) {
         window.marked.setOptions({ gfm: true, breaks: true });
     }

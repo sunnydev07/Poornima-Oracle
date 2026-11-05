@@ -25,9 +25,9 @@ export function createSuggestionCard(data) {
             role="button"
             aria-label="Ask ${escapeHtml(data.title)}: ${escapeHtml(data.description)}"
             data-suggestion-card
-            class="glass p-4 rounded-xl cursor-pointer hover:bg-white/5 ${colorClasses.border} transition-all group active:scale-98 touch-manipulation focus:outline-none focus:ring-2 focus:ring-cyan-400">
+            class="liquid-glass liquid-glass-rim p-4 rounded-[24px] cursor-pointer ${colorClasses.border} transition-all group active:scale-98 touch-manipulation focus:outline-none focus:ring-2 focus:ring-cyan-400 hover:-translate-y-0.5 hover:shadow-[0_20px_42px_-22px_rgba(50,173,230,0.6)]">
             <div class="flex items-start gap-3">
-                <div class="p-2 ${colorClasses.bg} rounded-lg ${colorClasses.text} ${colorClasses.hoverText} shrink-0">
+                <div class="liquid-icon-well h-10 w-10 ${colorClasses.bg} ${colorClasses.text} ${colorClasses.hoverText} shrink-0">
                     <i data-lucide="${escapeHtml(data.icon)}" class="w-5 h-5"></i>
                 </div>
                 <div>

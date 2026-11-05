@@ -205,7 +205,7 @@ app.use(
 app.use(compression());
 app.use(cors(DEFAULT_CORS_ORIGIN ? { origin: DEFAULT_CORS_ORIGIN } : undefined));
 app.use(express.json({ limit: '32kb' }));
-app.use(express.static(path.join(__dirname)));
+app.use('/src', express.static(path.join(__dirname, 'src'), { dotfiles: 'deny', index: false }));
 
 function sanitizeText(value) {
   if (typeof value !== 'string') {
@@ -753,8 +753,32 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
+app.get('/index.html', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
 app.get('/styles.css', (req, res) => {
   res.sendFile(path.join(__dirname, 'styles.css'));
+});
+
+app.get('/manifest.json', (req, res) => {
+  res.sendFile(path.join(__dirname, 'manifest.json'));
+});
+
+app.get('/sw.js', (req, res) => {
+  res.sendFile(path.join(__dirname, 'sw.js'));
+});
+
+app.get('/chat-contract.js', (req, res) => {
+  res.sendFile(path.join(__dirname, 'chat-contract.js'));
+});
+
+app.get('/chat-request-owner.js', (req, res) => {
+  res.sendFile(path.join(__dirname, 'chat-request-owner.js'));
+});
+
+app.get('/poornima-oracle.svg', (req, res) => {
+  res.sendFile(path.join(__dirname, 'poornima-oracle.svg'));
 });
 
 app.get('/api/health', (req, res) => {

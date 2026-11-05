@@ -5,7 +5,7 @@ module.exports = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Inter', 'sans-serif'],
+        sans: ['ui-sans-serif', '-apple-system', 'BlinkMacSystemFont', '"SF Pro Display"', '"Segoe UI"', 'sans-serif'],
       },
       colors: {
         zinc: {
@@ -16,6 +16,7 @@ module.exports = {
       animation: {
         'fade-in': 'fadeIn 0.4s ease-out forwards',
         'slide-in': 'slideIn 0.3s ease-out forwards',
+        'slow-orbit': 'slowOrbit 36s linear infinite',
       },
       keyframes: {
         fadeIn: {
@@ -25,6 +26,10 @@ module.exports = {
         slideIn: {
           '0%': { opacity: '0', transform: 'translateY(10px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        slowOrbit: {
+          '0%': { transform: 'translate(-50%, -50%) rotate(0deg)' },
+          '100%': { transform: 'translate(-50%, -50%) rotate(360deg)' },
         },
       },
     },

@@ -7,8 +7,12 @@ import { getDefaultApiEndpoint, DEMO_MODE_STORAGE_KEY, GEMINI_ENDPOINT_STORAGE_K
 import { refreshIcons } from '../utils/dom.js';
 import { updateInstallUI } from '../pwa/installPrompt.js';
 import { saveStudentProfile, updateProfileUI } from '../profile/profileStore.js';
+import { syncSidebarAccessibility } from './sidebar.js';
+
+let lastFocusedElement = null;
 
 export function showApiModal() {
+    lastFocusedElement = document.activeElement;
     const endpointInput = document.getElementById('apiEndpoint');
     if (endpointInput) {
         endpointInput.value = state.demoMode ? '' : (state.apiEndpoint || getDefaultApiEndpoint());
@@ -39,12 +43,21 @@ export function showApiModal() {
     updateProfileUI();
     const modal = document.getElementById('apiModal');
     if (modal) modal.classList.remove('hidden');
+    for (const region of [document.getElementById('sidebar'), document.getElementById('mainChat')]) {
+        if (!region) continue;
+        region.inert = true;
+        region.setAttribute('aria-hidden', 'true');
+    }
+    requestAnimationFrame(() => document.getElementById('apiEndpoint')?.focus());
     refreshIcons();
 }
 
 export function closeApiModal() {
     const modal = document.getElementById('apiModal');
     if (modal) modal.classList.add('hidden');
+    syncSidebarAccessibility();
+    if (lastFocusedElement?.isConnected) lastFocusedElement.focus();
+    lastFocusedElement = null;
 }
 
 export function handleModalBackdropClick(event) {
@@ -131,9 +144,34 @@ export function skipSetup() {
 }
 
 export function initModalListeners() {
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
+    document.addEventListener('keydown', (event) => {
+        const modal = document.getElementById('apiModal');
+        if (!modal || modal.classList.contains('hidden')) return;
+
+        if (event.key === 'Escape') {
+            event.preventDefault();
             closeApiModal();
+            return;
+        }
+        if (event.key !== 'Tab') return;
+
+        const focusable = [...modal.querySelectorAll(
+            'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )].filter((element) => element.getClientRects().length > 0);
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (!first || !last) {
+            event.preventDefault();
+            modal.focus();
+        } else if (!modal.contains(document.activeElement)) {
+            event.preventDefault();
+            first.focus();
+        } else if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
         }
     });
 }

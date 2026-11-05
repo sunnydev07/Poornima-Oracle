@@ -6,8 +6,8 @@
   "scope": "./",
   "id": "./",
   "display": "standalone",
-  "background_color": "#09090b",
-  "theme_color": "#09090b",
+  "background_color": "#050508",
+  "theme_color": "#050508",
   "orientation": "portrait-primary",
   "categories": [
     "education",
@@ -29,6 +29,12 @@
     },
     {
       "src": "./src/assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "./poornima-oracle.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"

@@ -3,8 +3,8 @@
 
 <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#09090b" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#050508" />
     <title>Poornima Oracle | RAG Agent</title>
 
     <!-- Tailwind CSS -->
@@ -132,7 +132,7 @@
             height: 96px;
             pointer-events: none;
             z-index: 20;
-            background: linear-gradient(to bottom, transparent, rgba(9, 9, 11, 0.6), #09090b);
+            background: linear-gradient(to bottom, transparent, rgba(5, 5, 8, 0.6), #050508);
         }
 
         .aurora-glow {
@@ -474,9 +474,9 @@
         /* Tool Tray Accordion */
         .tool-tray {
             border: 1px solid rgba(255, 255, 255, 0.1);
-            background: rgba(24, 24, 27, 0.75);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(18, 19, 26, 0.74));
+            backdrop-filter: blur(24px) saturate(180%);
+            -webkit-backdrop-filter: blur(24px) saturate(180%);
             border-radius: 0.75rem;
             overflow: hidden;
             font-size: 0.75rem;
@@ -601,15 +601,15 @@
     </style>
 </head>
 
-<body class="bg-zinc-950 text-slate-200 font-sans overflow-hidden h-[100dvh] selection:bg-cyan-500/30 flex flex-col">
+<body class="bg-[#050508] text-slate-200 font-sans overflow-hidden h-[100dvh] selection:bg-cyan-500/30 flex flex-col">
 
     <canvas id="click-spark-canvas"></canvas>
 
     <!-- Settings & Dual Cloud Fallback Modal -->
-    <div id="apiModal"
+    <div id="apiModal" role="dialog" aria-modal="true" aria-label="Setup API" aria-labelledby="apiModalTitle"
         class="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center hidden transition-opacity duration-300 px-4"
         onclick="handleModalBackdropClick(event)">
-        <div class="glass bg-zinc-900/95 border border-white/10 rounded-2xl p-6 max-w-lg w-full shadow-2xl transform transition-all scale-100 max-h-[90vh] overflow-y-auto"
+        <div class="liquid-glass liquid-glass-rim bg-zinc-900/75 rounded-[32px] p-6 max-w-lg w-full shadow-2xl transform transition-all scale-100 max-h-[90vh] overflow-y-auto"
             onclick="event.stopPropagation()">
             <!-- Header -->
             <div class="flex items-center justify-between pb-4 border-b border-white/10 mb-5">
@@ -618,12 +618,12 @@
                         <i data-lucide="sliders" class="w-5 h-5 text-cyan-400"></i>
                     </div>
                     <div>
-                        <h2 class="text-lg font-bold text-white leading-tight">Settings & Profile</h2>
+                        <h2 id="apiModalTitle" class="text-lg font-bold text-white leading-tight">Settings & Profile</h2>
                         <p class="text-zinc-400 text-xs">Student profile, backend API & cloud failover</p>
                     </div>
                 </div>
-                <button type="button" onclick="closeApiModal()" aria-label="Close settings"
-                    class="p-1.5 text-zinc-400 hover:text-white hover:bg-white/10 rounded-lg transition">
+                <button id="apiModalClose" type="button" onclick="closeApiModal()" aria-label="Close API settings"
+                    class="liquid-icon-well h-11 w-11 text-zinc-300">
                     <i data-lucide="x" class="w-5 h-5"></i>
                 </button>
             </div>
@@ -712,7 +712,7 @@
                         <i data-lucide="server" class="w-4 h-4 text-cyan-400"></i>
                         <label for="apiEndpoint" class="text-xs font-semibold text-zinc-200 uppercase tracking-wider">Backend API Endpoint</label>
                     </div>
-                    <input type="text" id="apiEndpoint"
+                    <input type="text" id="apiEndpoint" aria-label="Backend API endpoint"
                         class="w-full glass-input px-3.5 py-2.5 rounded-xl text-white placeholder-zinc-600 focus:outline-none focus:border-cyan-500/50 transition-all text-xs"
                         placeholder="https://poornima-oracle.onrender.com/api/chat" />
                     <p class="text-[11px] text-zinc-500">Defaults to your local or hosted origin (<code class="text-zinc-400">/api/chat</code>).</p>
@@ -839,7 +839,7 @@
                         class="px-4 py-2 text-xs text-zinc-400 hover:text-white transition-colors rounded-xl hover:bg-white/5">
                         Cancel
                     </button>
-                    <button type="button" onclick="saveApiEndpoint()"
+                    <button type="button" onclick="saveApiEndpoint()" aria-label="Save"
                         class="px-5 py-2.5 bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 text-white text-xs font-bold rounded-xl shadow-lg shadow-cyan-900/20 active:scale-95 transition-all flex items-center gap-1.5">
                         <i data-lucide="check" class="w-3.5 h-3.5"></i>
                         <span>Save Settings</span>
@@ -858,7 +858,7 @@
 
         <!-- Sidebar -->
         <aside id="sidebar"
-            class="sidebar-transition fixed md:relative z-[70] h-full w-[85%] max-w-[300px] md:w-72 -translate-x-full md:translate-x-0 bg-black/80 backdrop-blur-3xl border-r border-white/10 flex flex-col shadow-2xl md:shadow-none">
+            class="sidebar-transition liquid-glass liquid-glass-rim fixed md:relative z-[70] h-full w-[85%] max-w-[300px] md:w-72 -translate-x-full md:translate-x-0 border-r border-white/10 flex flex-col shadow-2xl md:m-3 md:mr-0 md:h-[calc(100dvh-1.5rem)] md:rounded-[28px] md:shadow-none">
 
             <!-- Sidebar Header -->
             <div class="p-4 border-b border-white/10 flex items-center justify-between pt-safe-top h-16">
@@ -878,21 +878,31 @@
                 </button>
 
                 <!-- Mobile Close Button -->
-                <button onclick="closeMobileSidebar()"
-                    class="md:hidden p-2 hover:bg-white/10 rounded-lg text-zinc-400 transition active:scale-95">
+                <button id="closeSidebarButton" type="button" onclick="closeMobileSidebar()" aria-label="Close conversation history"
+                    class="liquid-icon-well md:hidden h-11 w-11 text-zinc-300">
                     <i data-lucide="x" class="w-6 h-6"></i>
                 </button>
             </div>
 
             <!-- New Chat Button -->
             <div class="p-4 pb-2">
-                <button onclick="startNewChat()"
+                <button id="newChatButton" type="button" onclick="startNewChat()" aria-label="Start a new chat"
                     class="sidebar-item w-full flex items-center gap-3 p-3.5 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/20 rounded-xl text-white transition-all group hover:shadow-[0_0_10px_rgba(255,255,255,0.1)] active:scale-95 touch-manipulation">
                     <i data-lucide="plus"
                         class="sidebar-icon w-5 h-5 text-cyan-400 group-hover:rotate-90 transition-transform shrink-0"></i>
                     <span class="sidebar-text text-sm font-medium whitespace-nowrap">New Chat</span>
                 </button>
             </div>
+
+            <section id="sidebarCampusSwitcher" class="px-4 pb-4 lg:hidden" aria-labelledby="sidebarCampusLabel">
+                <h3 id="sidebarCampusLabel" class="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">Campus focus</h3>
+                <div class="segmented-pill-bar w-full justify-between" role="group" aria-label="Quick campus selection">
+                    <button type="button" class="campus-pill" data-campus-pill="ALL" aria-pressed="true" onclick="setQuickCampus('ALL')">All</button>
+                    <button type="button" class="campus-pill" data-campus-pill="PU" aria-pressed="false" onclick="setQuickCampus('PU')">PU</button>
+                    <button type="button" class="campus-pill" data-campus-pill="PCE" aria-pressed="false" onclick="setQuickCampus('PCE')">PCE</button>
+                    <button type="button" class="campus-pill" data-campus-pill="PIET" aria-pressed="false" onclick="setQuickCampus('PIET')">PIET</button>
+                </div>
+            </section>
 
             <!-- Conversations List (dynamically populated by JS) -->
             <div class="flex-1 overflow-y-auto p-2 scrollbar-thin" id="conversationsList">
@@ -909,48 +919,55 @@
         </aside>
 
         <!-- Main Content -->
-        <main class="flex-1 flex flex-col w-full relative bg-transparent overflow-hidden">
+        <main id="mainChat" class="flex-1 flex flex-col w-full relative bg-transparent overflow-hidden">
 
             <!-- Header -->
             <header id="mainHeader"
-                class="main-header absolute top-0 inset-x-0 h-16 border-b border-white/5 flex items-center justify-between px-4 md:px-8 bg-zinc-950/80 backdrop-blur-md z-30">
+                class="main-header liquid-capsule relative z-30 m-2 flex h-14 shrink-0 items-center justify-between gap-2 px-2 sm:px-3 md:mx-3 md:mt-3 md:px-4">
                 <div class="flex items-center gap-3">
                     <!-- Mobile Menu Toggle -->
-                    <button onclick="openMobileSidebar()"
-                        class="md:hidden p-2 text-zinc-300 bg-white/5 rounded-lg border border-white/10 active:bg-white/10 transition-colors">
+                    <button id="mobileMenuButton" type="button" onclick="openMobileSidebar()" aria-label="Open conversation history" aria-expanded="false"
+                        class="liquid-icon-well md:hidden h-11 w-11 shrink-0 text-zinc-100">
                         <i data-lucide="menu" class="w-6 h-6"></i>
                     </button>
 
-                    <h1
-                        class="text-lg md:text-2xl font-bold tracking-tighter bg-gradient-to-r from-white via-slate-300 to-gray-500 bg-clip-text text-transparent truncate">
-                        Poornima Oracle
-                    </h1>
+                    <span class="spatial-status-dot hidden shrink-0 sm:block" aria-hidden="true"></span>
+                    <div class="min-w-0">
+                        <h1 class="truncate text-base font-semibold tracking-tight text-white sm:text-lg">Poornima Oracle</h1>
+                        <p class="hidden text-[10px] font-medium tracking-[0.12em] text-zinc-400 sm:block">CAMPUS INTELLIGENCE</p>
+                    </div>
+                </div>
+                <div class="segmented-pill-bar hidden lg:inline-flex" role="group" aria-label="Quick campus selection">
+                    <button type="button" class="campus-pill" data-campus-pill="ALL" aria-pressed="true" onclick="setQuickCampus('ALL')">All</button>
+                    <button type="button" class="campus-pill" data-campus-pill="PU" aria-pressed="false" onclick="setQuickCampus('PU')">PU</button>
+                    <button type="button" class="campus-pill" data-campus-pill="PCE" aria-pressed="false" onclick="setQuickCampus('PCE')">PCE</button>
+                    <button type="button" class="campus-pill" data-campus-pill="PIET" aria-pressed="false" onclick="setQuickCampus('PIET')">PIET</button>
                 </div>
                 <div class="flex items-center gap-2">
                     <button id="profilePillButton" onclick="openProfileModal()" aria-label="Student Profile"
-                        class="border border-white/10 bg-white/[0.03] hover:bg-white/10 px-2.5 py-1.5 rounded-lg text-zinc-300 hover:text-white transition flex items-center gap-1.5 active:scale-95 text-xs font-medium whitespace-nowrap">
+                        class="liquid-capsule hidden min-h-11 items-center gap-2 px-3 text-xs font-semibold text-zinc-100 xl:inline-flex">
                         <span id="profilePillText">🎓 Student Profile</span>
                         <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-zinc-400"></i>
                     </button>
                     <button id="installAppButton" onclick="triggerInstallPrompt()" aria-label="Install App"
-                        class="hidden border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 px-2.5 py-2 rounded-lg text-cyan-300 hover:text-cyan-200 transition flex items-center gap-1.5 active:scale-95 text-xs font-semibold whitespace-nowrap shadow-sm shadow-cyan-950/40">
+                        class="liquid-icon-well hidden h-11 w-11 text-zinc-300 hover:text-white">
                         <i data-lucide="download" class="w-4 h-4"></i>
-                        <span class="hidden sm:inline">Install</span>
+                        <span class="sr-only">Install</span>
                     </button>
                     <button id="exportChatButton" onclick="exportActiveConversation(this)" aria-label="Export conversation"
                         title="Export conversation (Markdown / PDF)"
-                        class="border border-white/10 bg-white/[0.03] px-3 py-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition flex items-center gap-2 active:scale-95 text-xs font-medium whitespace-nowrap">
+                        class="liquid-icon-well h-11 w-11 text-zinc-300 hover:text-white">
                         <i data-lucide="download" class="w-4 h-4"></i>
-                        <span class="hidden sm:inline">Export</span>
+                        <span class="sr-only">Export</span>
                     </button>
                     <button id="autoReadToggle" onclick="toggleAutoRead()" aria-label="Toggle auto-read AI answers"
                         aria-pressed="false"
-                        class="auto-read-toggle border border-white/10 bg-white/[0.03] px-3 py-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition flex items-center gap-2 active:scale-95 text-xs font-medium whitespace-nowrap">
+                        class="auto-read-toggle liquid-capsule hidden min-h-11 items-center gap-2 px-3 py-2 text-xs font-medium text-zinc-300 transition active:scale-95 sm:flex">
                         <i data-lucide="headphones" class="w-4 h-4"></i>
-                        <span>Auto-read</span>
+                        <span class="hidden lg:inline">Auto-read</span>
                     </button>
-                    <button onclick="showApiModal()" aria-label="Open API settings"
-                        class="p-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition flex items-center gap-2 active:scale-95">
+                    <button type="button" onclick="showApiModal()" aria-label="Open API settings"
+                        class="liquid-icon-well h-11 w-11 text-zinc-300 hover:text-white">
                         <i data-lucide="settings" class="w-6 h-6"></i>
                     </button>
                 </div>
@@ -959,13 +976,16 @@
             <!-- Chat Area -->
             <div class="relative flex-1 overflow-hidden">
                 <div class="chat-ambient" aria-hidden="true">
+                    <div class="spatial-halo-bloom"></div>
+                    <div class="spatial-orbital-ring"></div>
                     <div class="chat-orb chat-orb-cyan"></div>
                     <div class="chat-orb chat-orb-blue"></div>
                     <div class="chat-orb chat-orb-purple"></div>
                 </div>
-                <div class="relative z-10 h-full overflow-y-auto px-4 pb-4 pt-20 md:px-6 md:pb-6 md:pt-24 scrollbar-thin" id="chatContainer">
+                <div class="relative z-10 h-full overflow-y-auto px-4 pb-4 pt-4 md:px-6 md:pb-6 md:pt-8 scrollbar-thin" id="chatContainer" role="log" aria-label="Conversation messages" aria-live="off" aria-busy="false">
                     <!-- Content injected via JS -->
                 </div>
+                <div id="chatStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
                 <div class="chat-bottom-fade" aria-hidden="true"></div>
                 <button id="scrollToBottomButton" type="button" onclick="scrollChatToBottom()"
                     class="hidden absolute bottom-4 right-4 z-30 inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-zinc-950/85 px-4 py-2 text-xs font-semibold text-cyan-100 shadow-lg shadow-cyan-950/30 backdrop-blur-md hover:bg-cyan-500/10 hover:text-white transition active:scale-95">
@@ -979,18 +999,18 @@
                     <div
                         class="aurora-glow absolute -inset-1 bg-gradient-to-r from-cyan-500/20 via-purple-500/10 to-blue-500/20 rounded-2xl blur-md opacity-50 group-hover:opacity-75 transition-opacity duration-500 hidden md:block">
                     </div>
-                    <div class="glass-input rounded-2xl flex items-end p-1.5 md:p-2 relative z-10">
-                        <textarea id="messageInput"
+                    <div id="composerDock" class="liquid-glass liquid-glass-rim rounded-[28px] flex items-end p-1.5 pl-3 md:p-2 md:pl-4 relative z-10">
+                        <textarea id="messageInput" aria-label="Message"
                             class="w-full bg-transparent border-none text-white placeholder-zinc-500 px-3 md:px-4 py-3 focus:ring-0 resize-none max-h-32 md:max-h-48 overflow-y-auto text-base"
                             rows="1" placeholder="Ask here..." onkeydown="handleKeyPress(event)"
                             oninput="adjustTextareaHeight(this)"></textarea>
                         <button id="micButton" onclick="toggleSpeechRecognition()" aria-label="Start voice input"
                             aria-pressed="false" title="Start voice input"
-                            class="p-3 rounded-xl border border-white/10 bg-white/[0.03] text-zinc-400 hover:bg-white/10 hover:text-white transition-all active:scale-95 mb-0.5 mr-2 flex items-center justify-center shrink-0">
+                            class="liquid-icon-well mb-0.5 mr-2 h-11 w-11 shrink-0 text-zinc-300 hover:text-white">
                             <i data-lucide="mic" class="w-5 h-5"></i>
                         </button>
                         <button id="sendButton" onclick="sendMessage({ allowSpeech: true })"
-                            class="p-3 rounded-xl bg-white text-black hover:bg-zinc-200 transition-all active:scale-95 shadow-[0_0_15px_rgba(255,255,255,0.1)] mb-0.5 mr-0.5 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shrink-0">
+                            class="liquid-icon-well mb-0.5 mr-0.5 h-11 w-11 shrink-0 bg-gradient-to-b from-white to-cyan-100 text-zinc-950 shadow-[0_0_22px_rgba(50,173,230,0.38)] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50">
                             <i data-lucide="send" class="w-5 h-5"></i>
                         </button>
                     </div>

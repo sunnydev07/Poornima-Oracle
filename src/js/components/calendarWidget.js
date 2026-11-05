@@ -222,7 +222,7 @@ function renderEventCard(event) {
         tabindex="0"
         role="button"
         aria-label="Ask about ${escapeHtml(event.title)}"
-        class="group p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.06] border border-white/10 hover:border-cyan-500/30 transition-all duration-200 cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 active:scale-[0.99] focus:outline-none focus:ring-1 focus:ring-cyan-400">
+        class="group liquid-glass liquid-glass-rim p-3 rounded-[20px] border border-white/10 hover:border-cyan-500/30 transition-all duration-200 cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 active:scale-[0.99] focus:outline-none focus:ring-1 focus:ring-cyan-400">
       
       <div class="flex items-start gap-2.5 min-w-0">
         <div class="p-2 rounded-lg ${cat.badge} border shrink-0 mt-0.5">
@@ -331,8 +331,8 @@ function renderWidgetContent() {
     tabsContainer.innerHTML = tabs
       .map(
         (tab) => `
-        <button type="button" onclick="window.setCalendarCategoryFilter('${tab.id}')"
-            class="px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all ${currentFilter === tab.id
+        <button type="button" aria-pressed="${currentFilter === tab.id}" onclick="window.setCalendarCategoryFilter('${tab.id}')"
+            class="campus-pill min-h-9 px-3 py-1 rounded-full text-[11px] font-medium transition-all ${currentFilter === tab.id
             ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
             : 'bg-white/[0.03] text-zinc-400 hover:text-zinc-200 border border-transparent'
           }">
@@ -389,7 +389,7 @@ export async function initCalendarWidget() {
   const isCollapsed = isCalendarCollapsed();
 
   container.innerHTML = `
-    <div class="glass bg-zinc-900/60 border border-white/10 hover:border-white/15 rounded-2xl p-3.5 sm:p-4 shadow-xl transition-all duration-300">
+    <div class="liquid-glass liquid-glass-rim bg-zinc-900/60 border border-white/10 hover:border-white/15 rounded-[26px] p-3.5 sm:p-4 shadow-xl transition-all duration-300">
       
       <!-- Widget Header (Always visible) -->
       <div class="flex items-center justify-between gap-2 cursor-pointer select-none" onclick="window.toggleCalendarCollapsed()">
@@ -424,7 +424,7 @@ export async function initCalendarWidget() {
       <div data-calendar-body class="space-y-3 pt-3 mt-3 border-t border-white/5 ${isCollapsed ? 'hidden' : ''}">
         
         <!-- Category Filter Tabs -->
-        <div data-calendar-tabs class="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+        <div data-calendar-tabs class="segmented-pill-bar flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
           <!-- Populated dynamically -->
         </div>
 

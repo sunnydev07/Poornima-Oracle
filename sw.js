@@ -1,16 +1,19 @@
 /**
- * Poornima Oracle - Service Worker (v2)
+ * Poornima Oracle - Service Worker (v4)
  * Provides offline caching, app-shell reliability, and instant load times.
  */
 
-const CACHE_NAME = 'poornima-oracle-v3';
+const CACHE_NAME = 'poornima-oracle-v4';
 
 const PRECACHE_ASSETS = [
     './',
     './index.html',
     './styles.css',
     './manifest.json',
+    './chat-contract.js',
+    './chat-request-owner.js',
     './src/assets/icon.svg',
+    './poornima-oracle.svg',
     './src/assets/icon-192.png',
     './src/assets/icon-512.png',
     './src/vendor/lucide.min.js',

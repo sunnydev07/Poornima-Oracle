@@ -9,12 +9,64 @@ import { renderWelcomeScreen } from './welcomeScreen.js';
 import { stopSpeechRecognition } from '../audio/speechRecognition.js';
 import { stopCurrentSpeech } from '../audio/speechSynthesizer.js';
 
+export function syncSidebarAccessibility() {
+    const sidebar = document.getElementById('sidebar');
+    const main = document.getElementById('mainChat');
+    if (!sidebar || !main) return;
+
+    const isMobile = window.innerWidth < 768;
+    const drawerOpen = isMobile && !sidebar.classList.contains('-translate-x-full');
+    const sidebarHidden = isMobile && !drawerOpen;
+
+    sidebar.inert = sidebarHidden;
+    sidebar.setAttribute('aria-hidden', String(sidebarHidden));
+    main.inert = drawerOpen;
+    main.setAttribute('aria-hidden', String(drawerOpen));
+    document.getElementById('mobileMenuButton')?.setAttribute('aria-expanded', String(drawerOpen));
+}
+
+function handleMobileSidebarKeydown(event) {
+    const sidebar = document.getElementById('sidebar');
+    if (window.innerWidth >= 768 || !sidebar || sidebar.inert) return;
+
+    if (event.key === 'Escape') {
+        event.preventDefault();
+        closeMobileSidebar();
+        return;
+    }
+    if (event.key !== 'Tab') return;
+
+    const focusable = [...sidebar.querySelectorAll(
+        'button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )].filter((element) => element.getClientRects().length > 0);
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (!first || !last) {
+        event.preventDefault();
+        sidebar.focus();
+    } else if (!sidebar.contains(document.activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+    } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+    }
+}
+
+document.addEventListener('keydown', handleMobileSidebarKeydown);
+window.addEventListener('resize', syncSidebarAccessibility);
+
 export function openMobileSidebar() {
     const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('sidebarOverlay');
     if (sidebar) sidebar.style.width = '';
     sidebar?.classList.remove('-translate-x-full');
     overlay?.classList.remove('hidden');
+    syncSidebarAccessibility();
+    if (window.innerWidth < 768) document.getElementById('newChatButton')?.focus();
 }
 
 export function closeMobileSidebar() {
@@ -22,6 +74,8 @@ export function closeMobileSidebar() {
     const overlay = document.getElementById('sidebarOverlay');
     sidebar?.classList.add('-translate-x-full');
     overlay?.classList.add('hidden');
+    syncSidebarAccessibility();
+    if (window.innerWidth < 768) document.getElementById('mobileMenuButton')?.focus();
 }
 
 export function toggleSidebarDesktop() {
