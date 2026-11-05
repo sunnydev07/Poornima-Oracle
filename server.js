@@ -2,6 +2,7 @@ require('dotenv').config();
 
 const crypto = require('crypto');
 const path = require('path');
+const { AsyncLocalStorage } = require('node:async_hooks');
 const express = require('express');
 const compression = require('compression');
 const cors = require('cors');
@@ -18,31 +19,24 @@ const { syncNotices, NOTICES_NAMESPACE } = require('./services/crawler/notice-sy
 const { getUpcomingCalendarEvents, getCalendarContextForPrompt } = require('./services/calendar-service');
 const chatContract = require('./chat-contract');
 
-const app = express();
-app.set('trust proxy', 1);
-const PORT = Number(process.env.PORT) || 3001;
-const DEFAULT_CORS_ORIGIN = process.env.CORS_ORIGIN
-  ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
-  : undefined;
-
 const requiredEnvVars = ['GEMINI_API_KEY', 'PINECONE_API_KEY', 'PINECONE_INDEX_NAME'];
-const missingEnvVars = requiredEnvVars.filter(
-  (envVar) => !process.env[envVar] || !process.env[envVar].trim()
-);
-
-const geminiApiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : '';
-const pineconeApiKey = process.env.PINECONE_API_KEY ? process.env.PINECONE_API_KEY.trim() : '';
-const pineconeIndexName = process.env.PINECONE_INDEX_NAME ? process.env.PINECONE_INDEX_NAME.trim() : '';
-const pineconeNamespace = process.env.PINECONE_NAMESPACE ? process.env.PINECONE_NAMESPACE.trim() : '';
-const embeddingModel = process.env.GEMINI_EMBEDDING_MODEL
-  ? process.env.GEMINI_EMBEDDING_MODEL.trim()
-  : 'gemini-embedding-001';
-const chatModel = process.env.GEMINI_MODEL
-  ? process.env.GEMINI_MODEL.trim()
-  : 'gemini-3.5-flash';
-const adminApiKey = process.env.ADMIN_API_KEY ? process.env.ADMIN_API_KEY.trim() : '';
 const noticeSyncCron = process.env.NOTICE_SYNC_CRON ? process.env.NOTICE_SYNC_CRON.trim() : '30 0 * * *'; // Default: 6:00 AM IST (00:30 UTC)
 const noticeSyncEnabled = process.env.NOTICE_SYNC_ENABLED !== 'false'; // Default: true
+
+const badWordsRegex = /\b(fuck|shit|bakwaas|behenchod|gandu)\b/i;
+const MAX_HISTORY_MESSAGES = 4;
+const MAX_MESSAGE_CHARS = 2000;
+const MAX_CONTEXT_CHARS = 4000;
+const MAX_ANSWER_CHARS = 12000;
+const MAX_SOURCE_TITLE_CHARS = 2048;
+const MAX_FEEDBACK_SOURCES = 5;
+const ANSWER_HEARTBEAT_MS = 15000;
+const REFUSAL_BUFFER_MAX = 220;
+const TIMEOUT_ERROR_MESSAGE = 'The response took too long. Please try again.';
+const BUSY_ERROR_MESSAGE = 'The assistant is busy. Please try again shortly.';
+const PROVIDER_REQUEST_ERROR_MESSAGE = 'The assistant service could not process this request.';
+const PLACEHOLDER_ANSWER = 'I could not generate a response. Please try again.';
+const FALLBACK_PLACEHOLDER_ANSWER = 'I was unable to complete the request. Please consult https://poornima.edu.in.';
 
 function parsePositiveInteger(value, fallback) {
   const parsed = Number.parseInt(value, 10);
@@ -65,6 +59,59 @@ function parseBoundedNumber(value, fallback, min, max) {
   }
 
   return Math.min(Math.max(parsed, min), max);
+}
+
+function getEnvTrim(name) {
+  return process.env[name] ? process.env[name].trim() : '';
+}
+
+function parseCorsOrigins(value) {
+  if (Array.isArray(value)) {
+    return value.map((origin) => String(origin).trim()).filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value.split(',').map((origin) => origin.trim()).filter(Boolean);
+  }
+  return undefined;
+}
+
+function buildConfig(overrides = {}) {
+  const baseConfig = {
+    answerTimeoutMs: parsePositiveInteger(process.env.REQUEST_TIMEOUT_MS, 90000),
+    answerIdleTimeoutMs: parsePositiveInteger(process.env.ANSWER_IDLE_TIMEOUT_MS, 30000),
+    maxConcurrentGenerations: parsePositiveInteger(process.env.MAX_CONCURRENT_GENERATIONS, 5),
+    trustProxyHops: parseBoundedInteger(process.env.TRUST_PROXY_HOPS, 0, 0, 10),
+    chatRateLimitMax: parsePositiveInteger(process.env.CHAT_RATE_LIMIT_MAX, 20),
+    chatRateLimitWindowMs: parsePositiveInteger(process.env.RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000),
+    feedbackRateLimitMax: parsePositiveInteger(process.env.FEEDBACK_RATE_LIMIT_MAX, 30),
+    feedbackRateLimitWindowMs: parsePositiveInteger(process.env.FEEDBACK_RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000),
+    cacheMaxKeys: parsePositiveInteger(process.env.CACHE_MAX_KEYS, 1000),
+    corsOrigins: parseCorsOrigins(process.env.CORS_ORIGIN),
+    ragRequestRetries: parseBoundedInteger(process.env.RAG_REQUEST_RETRIES, 2, 0, 5),
+    ragRequestTimeoutMs: parsePositiveInteger(process.env.RAG_REQUEST_TIMEOUT_MS, 15000),
+    ragTopK: parseBoundedInteger(process.env.RAG_TOP_K, 6, 1, 8),
+    ragMinScore: parseBoundedNumber(process.env.RAG_MIN_SCORE, 0.35, 0, 1),
+    queryCacheTtlSeconds: parsePositiveInteger(process.env.QUERY_CACHE_TTL_SECONDS, 3600),
+    embeddingModel: getEnvTrim('GEMINI_EMBEDDING_MODEL') || 'gemini-embedding-001',
+    chatModel: getEnvTrim('GEMINI_MODEL') || 'gemini-3.5-flash',
+    pineconeNamespace: getEnvTrim('PINECONE_NAMESPACE'),
+    pineconeIndexName: getEnvTrim('PINECONE_INDEX_NAME'),
+  };
+
+  const definedOverrides = {};
+  for (const [key, value] of Object.entries(overrides || {})) {
+    if (value !== undefined) {
+      definedOverrides[key] = value;
+    }
+  }
+
+  return { ...baseConfig, ...definedOverrides };
+}
+
+function getMissingEnvVars() {
+  return requiredEnvVars.filter(
+    (envVar) => !process.env[envVar] || !process.env[envVar].trim()
+  );
 }
 
 function getAllowedOllamaHost(rawHost) {
@@ -99,63 +146,142 @@ function getAllowedOllamaHost(rawHost) {
   return parsed.origin;
 }
 
-const CHAT_RATE_LIMIT_WINDOW_MS = parsePositiveInteger(
-  process.env.RATE_LIMIT_WINDOW_MS,
-  15 * 60 * 1000
-);
-const CHAT_RATE_LIMIT_MAX = parsePositiveInteger(process.env.CHAT_RATE_LIMIT_MAX, 20);
-const RAG_TOP_K = parseBoundedInteger(process.env.RAG_TOP_K, 6, 1, 8);
-const RAG_MIN_SCORE = parseBoundedNumber(process.env.RAG_MIN_SCORE, 0.35, 0, 1);
-const RAG_REQUEST_TIMEOUT_MS = parsePositiveInteger(process.env.RAG_REQUEST_TIMEOUT_MS, 15000);
-const RAG_REQUEST_RETRIES = parseBoundedInteger(process.env.RAG_REQUEST_RETRIES, 2, 0, 5);
-// Pinecone treats 0 as "use default retries"; -1 forces a single attempt.
-const PINECONE_MAX_RETRIES = RAG_REQUEST_RETRIES > 0 ? RAG_REQUEST_RETRIES : -1;
+function combineAbortSignals(signals) {
+  const activeSignals = signals.filter(
+    (signal) => signal && typeof signal.addEventListener === 'function'
+  );
+  if (activeSignals.length === 0) {
+    return undefined;
+  }
+  if (activeSignals.length === 1) {
+    return activeSignals[0];
+  }
+  if (typeof AbortSignal.any === 'function') {
+    return AbortSignal.any(activeSignals);
+  }
 
-const ai = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
-const pinecone = pineconeApiKey
-  ? new Pinecone({
-      apiKey: pineconeApiKey,
-      fetchApi: createTimeoutFetch(RAG_REQUEST_TIMEOUT_MS),
-      maxRetries: PINECONE_MAX_RETRIES,
-    })
-  : null;
-const pineconeIndex = pinecone && pineconeIndexName ? pinecone.index(pineconeIndexName) : null;
-const queryCacheTtlSeconds = Number.parseInt(process.env.QUERY_CACHE_TTL_SECONDS, 10);
-const queryCache = new NodeCache({
-  stdTTL: Number.isFinite(queryCacheTtlSeconds) && queryCacheTtlSeconds > 0
-    ? queryCacheTtlSeconds
-    : 3600,
-  checkperiod: 120,
-  maxKeys: 1000,
-  useClones: true,
-});
+  const controller = new AbortController();
+  for (const signal of activeSignals) {
+    if (signal.aborted) {
+      controller.abort(signal.reason);
+      return controller.signal;
+    }
+    signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
+  }
+  return controller.signal;
+}
 
-function createTimeoutFetch(timeoutMs) {
+function createTimeoutFetch(timeoutMs, requestSignalStorage) {
   return async (url, init = {}) => {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const timeoutController = new AbortController();
+    const timeout = setTimeout(() => {
+      timeoutController.abort(new Error(`Request timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
     timeout.unref?.();
 
-    if (init.signal) {
-      if (init.signal.aborted) {
-        controller.abort(init.signal.reason);
-      } else {
-        init.signal.addEventListener(
-          'abort',
-          () => controller.abort(init.signal.reason),
-          { once: true }
-        );
-      }
+    const storedSignal = requestSignalStorage && typeof requestSignalStorage.getStore === 'function'
+      ? requestSignalStorage.getStore()
+      : null;
+    const signal = combineAbortSignals([init.signal, storedSignal, timeoutController.signal]);
+
+    let response;
+    try {
+      response = await fetch(url, {
+        ...init,
+        ...(signal ? { signal } : {}),
+      });
+    } catch (error) {
+      clearTimeout(timeout);
+      throw error;
     }
 
-    try {
-      return await fetch(url, {
-        ...init,
-        signal: controller.signal,
-      });
-    } finally {
+    if (!response.body) {
       clearTimeout(timeout);
+      return response;
     }
+
+    // Keep the timeout armed while the body is consumed so a stalled body read
+    // fails too, and clear it when the wrapped stream finishes or is cancelled.
+    const body = response.body.pipeThrough(new TransformStream({
+      transform(chunk, controller) {
+        controller.enqueue(chunk);
+      },
+      flush() {
+        clearTimeout(timeout);
+      },
+      cancel() {
+        clearTimeout(timeout);
+      },
+    }));
+
+    return new Response(body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
+  };
+}
+
+function createDefaultAi() {
+  const geminiApiKey = getEnvTrim('GEMINI_API_KEY');
+  return geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
+}
+
+function createDefaultPineconeIndex(config, requestSignalStorage) {
+  const pineconeApiKey = getEnvTrim('PINECONE_API_KEY');
+  const pineconeIndexName = config.pineconeIndexName || getEnvTrim('PINECONE_INDEX_NAME');
+  if (!pineconeApiKey || !pineconeIndexName) {
+    return null;
+  }
+
+  // Pinecone treats 0 as "use default retries"; -1 forces a single attempt.
+  const maxRetries = config.ragRequestRetries > 0 ? config.ragRequestRetries : -1;
+  const pinecone = new Pinecone({
+    apiKey: pineconeApiKey,
+    fetchApi: createTimeoutFetch(config.ragRequestTimeoutMs, requestSignalStorage),
+    maxRetries,
+  });
+  return pinecone.index(pineconeIndexName);
+}
+
+function createBoundedQueryCache(config) {
+  const store = new NodeCache({
+    stdTTL: config.queryCacheTtlSeconds,
+    checkperiod: 120,
+    useClones: true,
+  });
+  const insertionOrder = [];
+  const maxKeys = Math.max(1, Number(config.cacheMaxKeys) || 1);
+
+  return {
+    get(key) {
+      return store.get(key);
+    },
+    set(key, value) {
+      const existingIndex = insertionOrder.indexOf(key);
+      if (existingIndex >= 0) {
+        insertionOrder.splice(existingIndex, 1);
+      }
+      while (insertionOrder.length >= maxKeys) {
+        const oldestKey = insertionOrder.shift();
+        if (oldestKey !== undefined) {
+          store.del(oldestKey);
+        }
+      }
+      insertionOrder.push(key);
+      return store.set(key, value);
+    },
+    del(key) {
+      const index = insertionOrder.indexOf(key);
+      if (index >= 0) {
+        insertionOrder.splice(index, 1);
+      }
+      return store.del(key);
+    },
+    flushAll() {
+      insertionOrder.length = 0;
+      return store.flushAll();
+    },
   };
 }
 
@@ -170,12 +296,12 @@ function validateApiKeyFormat(key, name, minLength) {
 function validateApiKeysAtStartup() {
   const issues = [];
 
-  const geminiValidation = validateApiKeyFormat(geminiApiKey, 'GEMINI_API_KEY', 20);
+  const geminiValidation = validateApiKeyFormat(getEnvTrim('GEMINI_API_KEY'), 'GEMINI_API_KEY', 20);
   if (!geminiValidation.valid) {
     issues.push(`GEMINI_API_KEY is ${geminiValidation.reason}`);
   }
 
-  const pineconeValidation = validateApiKeyFormat(pineconeApiKey, 'PINECONE_API_KEY', 20);
+  const pineconeValidation = validateApiKeyFormat(getEnvTrim('PINECONE_API_KEY'), 'PINECONE_API_KEY', 20);
   if (!pineconeValidation.valid) {
     issues.push(`PINECONE_API_KEY is ${pineconeValidation.reason}`);
   }
@@ -191,55 +317,6 @@ function validateApiKeysAtStartup() {
   }
 }
 
-const badWordsRegex = /\b(fuck|shit|bakwaas|behenchod|gandu)\b/i;
-const MAX_HISTORY_MESSAGES = 4;
-const MAX_MESSAGE_CHARS = 2000;
-const MAX_CONTEXT_CHARS = 4000;
-
-const chatRateLimiter = rateLimit({
-  windowMs: CHAT_RATE_LIMIT_WINDOW_MS,
-  max: CHAT_RATE_LIMIT_MAX,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many chat requests. Please wait and try again.' },
-});
-
-app.use(
-  helmet({
-    contentSecurityPolicy: {
-      useDefaults: true,
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: [
-          "'self'",
-          "'unsafe-inline'",
-          'https://unpkg.com',
-          'https://cdnjs.cloudflare.com',
-        ],
-        scriptSrcAttr: ["'unsafe-inline'"],
-        styleSrc: [
-          "'self'",
-          "'unsafe-inline'",
-          'https://fonts.googleapis.com',
-          'https://unpkg.com',
-        ],
-        fontSrc: ["'self'", 'https://fonts.gstatic.com'],
-        connectSrc: [
-          "'self'",
-          'https://poornima-oracle.onrender.com',
-          ...(DEFAULT_CORS_ORIGIN || []),
-        ],
-        imgSrc: ["'self'", 'data:', 'https:'],
-        workerSrc: ["'self'", 'blob:'],
-      },
-    },
-  })
-);
-app.use(compression());
-app.use(cors(DEFAULT_CORS_ORIGIN ? { origin: DEFAULT_CORS_ORIGIN } : undefined));
-app.use(express.json({ limit: '32kb' }));
-app.use('/src', express.static(path.join(__dirname, 'src'), { dotfiles: 'deny', index: false }));
-
 function sanitizeText(value) {
   if (typeof value !== 'string') {
     return '';
@@ -253,6 +330,11 @@ function sanitizeText(value) {
 }
 
 function detectApiKeyError(error) {
+  const errorStatus = getErrorStatus(error);
+  if (errorStatus === 400) {
+    return { isApiKeyError: false };
+  }
+
   const errorMessage = (error?.message || String(error)).toLowerCase();
   const errorCode = error?.code || error?.status || '';
 
@@ -271,10 +353,7 @@ function detectApiKeyError(error) {
     errorMessage.includes('authentication') ||
     errorMessage.includes('unauthorized.') ||
     errorMessage.includes('api key is invalid') ||
-    errorMessage.includes('key is invalid') ||
-    errorMessage.includes('bad request') ||
-    errorMessage.includes('quota exceeded') ||
-    errorMessage.includes('rate limit')
+    errorMessage.includes('key is invalid')
   ) {
     return {
       isApiKeyError: true,
@@ -336,9 +415,40 @@ function delay(ms) {
 }
 
 function getErrorStatus(error) {
-  const status = error?.status || error?.code || error?.response?.status;
-  const parsed = Number.parseInt(status, 10);
-  return Number.isFinite(parsed) ? parsed : null;
+  // Inspect every candidate so a non-numeric `code` (e.g. "ECONNRESET")
+  // cannot mask a numeric `response.status`.
+  const candidates = [error?.status, error?.code, error?.response?.status];
+  for (const candidate of candidates) {
+    if (candidate === null || candidate === undefined || candidate === '') {
+      continue;
+    }
+    const parsed = typeof candidate === 'number'
+      ? candidate
+      : Number.parseInt(String(candidate), 10);
+    if (Number.isInteger(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function isAbortOrTimeoutError(error) {
+  if (!error) {
+    return false;
+  }
+  const name = String(error.name || '').toLowerCase();
+  const code = String(error.code || '').toLowerCase();
+  const message = String(error.message || error).toLowerCase();
+  return (
+    name === 'aborterror' ||
+    name === 'timeouterror' ||
+    code === 'abort_err' ||
+    code === 'aborted' ||
+    code === 'request_timeout' ||
+    message.includes('aborted') ||
+    message.includes('timeout') ||
+    message.includes('timed out')
+  );
 }
 
 function isTransientError(error) {
@@ -361,19 +471,23 @@ function isTransientError(error) {
   );
 }
 
-async function withTransientRetries(operationName, operation) {
-  for (let attempt = 0; attempt <= RAG_REQUEST_RETRIES; attempt++) {
+async function withTransientRetries(retries, operationName, operation) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       return await operation();
     } catch (error) {
-      if (attempt >= RAG_REQUEST_RETRIES || !isTransientError(error)) {
+      if (
+        attempt >= retries ||
+        isAbortOrTimeoutError(error) ||
+        !isTransientError(error)
+      ) {
         throw error;
       }
 
       const delayMs = Math.min(250 * 2 ** attempt, 2000);
       console.warn(
         `${operationName} failed: ${error?.message || error}. ` +
-        `Retrying in ${delayMs}ms (${attempt + 1}/${RAG_REQUEST_RETRIES}).`
+        `Retrying in ${delayMs}ms (${attempt + 1}/${retries}).`
       );
       await delay(delayMs);
     }
@@ -391,6 +505,13 @@ function createRequestAbortController(timeoutMs) {
     signal: controller.signal,
     clear: () => clearTimeout(timeout),
   };
+}
+
+function createRequestTimeoutError() {
+  const error = new Error('The response took too long.');
+  error.name = 'TimeoutError';
+  error.code = 'REQUEST_TIMEOUT';
+  return error;
 }
 
 function getRecentHistoryEntries(history, currentMessage = '') {
@@ -460,7 +581,11 @@ function buildSources(matches) {
         'file',
         'source',
       ]);
-      const rawUrl = getFirstMetadataValue(metadata, ['url', 'link']);
+      // Skip unsafe schemes (e.g. javascript:) and fall through to the next
+      // URL-bearing metadata key, such as `link`.
+      const rawUrl = ['url', 'link']
+        .map((key) => sanitizeText(metadata[key]))
+        .find((candidate) => candidate && looksLikeUrl(candidate)) || '';
       const sourceValue = sanitizeText(metadata.source);
       const url = rawUrl || (looksLikeUrl(sourceValue) ? sourceValue : '');
       const title = rawTitle && !looksLikeUrl(rawTitle) ? rawTitle : id;
@@ -486,11 +611,11 @@ function buildSources(matches) {
     .slice(0, 3);
 }
 
-function filterRelevantMatches(matches) {
+function filterRelevantMatches(matches, minScore) {
   return matches.filter((match) => (
     typeof match?.score === 'number' &&
     Number.isFinite(match.score) &&
-    match.score >= RAG_MIN_SCORE
+    match.score >= minScore
   ));
 }
 
@@ -499,9 +624,13 @@ function writeSse(res, event, payload) {
     return;
   }
 
-  res.write(`event: ${event}\n`);
-  res.write(`data: ${JSON.stringify(payload)}\n\n`);
-  res.flush?.();
+  try {
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    res.flush?.();
+  } catch {
+    // The client disconnected between the state check and the write.
+  }
 }
 
 function endResponseQuietly(res) {
@@ -510,11 +639,39 @@ function endResponseQuietly(res) {
   }
 }
 
+function sendJson(res, statusCode, payload) {
+  if (res.destroyed || res.writableEnded || res.headersSent) {
+    return false;
+  }
+  res.status(statusCode).json(payload);
+  return true;
+}
+
 function setSseHeaders(res) {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders?.();
+}
+
+function startAnswerHeartbeat(res) {
+  const timer = setInterval(() => {
+    if (!res.destroyed && !res.writableEnded) {
+      try {
+        res.write(': ping\n\n');
+      } catch {
+        // Ignore a write racing with a client disconnect.
+      }
+    }
+  }, ANSWER_HEARTBEAT_MS);
+  timer.unref?.();
+  return timer;
+}
+
+function stopAnswerHeartbeat(timer) {
+  if (timer) {
+    clearInterval(timer);
+  }
 }
 
 function normalizeForCache(value) {
@@ -552,7 +709,7 @@ function writeCachedResponse(res, cachedResponse) {
     provider: cachedResponse.provider,
     fallback: cachedResponse.fallback,
   });
-  res.end();
+  endResponseQuietly(res);
 }
 
 const REFUSAL_PATTERNS = [
@@ -579,7 +736,7 @@ function isRefusalResponse(text) {
   return REFUSAL_PATTERNS.some((pattern) => pattern.test(trimmed));
 }
 
-async function streamFallbackResponse(res, {
+async function streamFallbackResponse(deps, res, {
   message,
   history = [],
   contextSnippets = '',
@@ -590,10 +747,12 @@ async function streamFallbackResponse(res, {
   initialSources = [],
   router = fallbackRouter,
 }) {
+  const { queryCache } = deps;
   if (!res.headersSent) {
     setSseHeaders(res);
   }
 
+  const heartbeatTimer = startAnswerHeartbeat(res);
   let fallbackAnswer = '';
   try {
     const result = await router.handleFallback({
@@ -631,8 +790,7 @@ async function streamFallbackResponse(res, {
       return;
     }
 
-    const finalAnswer = (result?.answer || fallbackAnswer).trim() ||
-      'I was unable to complete the request. Please consult https://poornima.edu.in.';
+    const finalAnswer = (result?.answer || fallbackAnswer).trim() || FALLBACK_PLACEHOLDER_ANSWER;
     const sources = Array.isArray(result?.sources) && result.sources.length > 0
       ? result.sources
       : initialSources;
@@ -642,7 +800,12 @@ async function streamFallbackResponse(res, {
       writeSse(res, 'sources', { sources });
     }
 
-    if (queryCacheKey && finalAnswer && result?.success !== false) {
+    if (
+      queryCacheKey &&
+      result &&
+      result.success !== false &&
+      finalAnswer !== FALLBACK_PLACEHOLDER_ANSWER
+    ) {
       queryCache.set(queryCacheKey, {
         answer: finalAnswer,
         sources,
@@ -657,16 +820,17 @@ async function streamFallbackResponse(res, {
       provider,
       fallback: true,
     });
-    res.end();
+    endResponseQuietly(res);
   } catch (fallbackError) {
     console.error('Error during fallback streaming:', fallbackError);
-    if (!res.writableEnded) {
+    if (!res.writableEnded && !res.destroyed) {
       writeSse(res, 'error', { error: 'Failed to process the query via fallback services.' });
-      res.end();
+      endResponseQuietly(res);
     }
+  } finally {
+    stopAnswerHeartbeat(heartbeatTimer);
   }
 }
-
 
 function sanitizeProfile(rawProfile) {
   if (!rawProfile || typeof rawProfile !== 'object') return null;
@@ -717,19 +881,22 @@ Verified Context:
 ${contextSnippets || 'No direct institutional database context found.'}`;
 }
 
-async function createQueryEmbedding(message) {
-  return withTransientRetries('Gemini embedding', async () => {
-    const abortController = createRequestAbortController(RAG_REQUEST_TIMEOUT_MS);
+async function createQueryEmbedding(deps, message) {
+  const { ai, config, pineconeRequestSignalStorage } = deps;
+  return withTransientRetries(config.ragRequestRetries, 'Gemini embedding', async () => {
+    const abortController = createRequestAbortController(config.ragRequestTimeoutMs);
+    const requestSignal = pineconeRequestSignalStorage.getStore();
+    const combinedSignal = combineAbortSignals([abortController.signal, requestSignal]);
     try {
       const embedResponse = await ai.models.embedContent({
-        model: embeddingModel,
+        model: config.embeddingModel,
         contents: message,
         config: {
           outputDimensionality: 768,
           httpOptions: {
-            timeout: RAG_REQUEST_TIMEOUT_MS,
+            timeout: config.ragRequestTimeoutMs,
           },
-          abortSignal: abortController.signal,
+          abortSignal: combinedSignal,
         },
       });
 
@@ -740,453 +907,402 @@ async function createQueryEmbedding(message) {
   });
 }
 
-async function startAnswerStream(message, historyContext, contextSnippets, profile, externalSignal) {
-  return withTransientRetries('Gemini answer stream start', async () => {
-    const abortController = createRequestAbortController(RAG_REQUEST_TIMEOUT_MS);
-    const combinedSignal = externalSignal || abortController.signal;
-    const modelsToTry = [chatModel, 'gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash']
-      .filter((m, i, arr) => arr.indexOf(m) === i);
-    let lastError;
-    try {
-      for (const modelName of modelsToTry) {
-        try {
-          return await ai.models.generateContentStream({
-            model: modelName,
-            config: {
-              systemInstruction: buildSystemInstruction(contextSnippets, profile),
-              httpOptions: {
-                timeout: RAG_REQUEST_TIMEOUT_MS,
-              },
-              abortSignal: combinedSignal,
+async function startAnswerStream(deps, message, historyContext, contextSnippets, profile, externalSignal) {
+  const { ai, config } = deps;
+  const abortController = createRequestAbortController(config.ragRequestTimeoutMs);
+  const combinedSignal = combineAbortSignals([externalSignal, abortController.signal]);
+  const modelsToTry = [config.chatModel, 'gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash']
+    .filter((m, i, arr) => arr.indexOf(m) === i);
+  let lastError;
+  try {
+    for (const modelName of modelsToTry) {
+      try {
+        return await ai.models.generateContentStream({
+          model: modelName,
+          config: {
+            systemInstruction: buildSystemInstruction(contextSnippets, profile),
+            httpOptions: {
+              timeout: config.ragRequestTimeoutMs,
             },
-            contents: [
-              {
-                role: 'user',
-                parts: [{ text: `Previous Conversation:\n${historyContext || 'None'}\n\nQuestion: ${message}` }],
-              },
-            ],
-          });
-        } catch (err) {
-          lastError = err;
-          console.warn(`Model ${modelName} failed to start stream:`, err?.message || err);
+            abortSignal: combinedSignal,
+          },
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: `Previous Conversation:\n${historyContext || 'None'}\n\nQuestion: ${message}` }],
+            },
+          ],
+        });
+      } catch (err) {
+        lastError = err;
+        const status = getErrorStatus(err);
+        // Throttling, malformed requests, and aborts are not model-availability
+        // failures: surface them immediately instead of walking the model chain.
+        if (status === 429 || status === 400 || isAbortOrTimeoutError(err)) {
+          throw err;
         }
+        console.warn(`Model ${modelName} failed to start stream:`, err?.message || err);
       }
-      throw lastError;
-    } finally {
-      abortController.clear();
     }
-  });
+    throw lastError;
+  } finally {
+    abortController.clear();
+  }
 }
 
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
-});
+function acquireGenerationPermit(deps) {
+  if (deps.activeGenerations >= deps.config.maxConcurrentGenerations) {
+    return false;
+  }
+  deps.activeGenerations += 1;
+  return true;
+}
 
-app.get('/index.html', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
-});
+function releaseGenerationPermit(deps, permitState) {
+  if (!permitState.acquired) {
+    return;
+  }
+  permitState.acquired = false;
+  deps.activeGenerations = Math.max(0, deps.activeGenerations - 1);
+}
 
-app.get('/styles.css', (req, res) => {
-  res.sendFile(path.join(__dirname, 'styles.css'));
-});
-
-app.get('/manifest.json', (req, res) => {
-  res.sendFile(path.join(__dirname, 'manifest.json'));
-});
-
-app.get('/sw.js', (req, res) => {
-  res.sendFile(path.join(__dirname, 'sw.js'));
-});
-
-app.get('/chat-contract.js', (req, res) => {
-  res.sendFile(path.join(__dirname, 'chat-contract.js'));
-});
-
-app.get('/chat-request-owner.js', (req, res) => {
-  res.sendFile(path.join(__dirname, 'chat-request-owner.js'));
-});
-
-app.get('/poornima-oracle.svg', (req, res) => {
-  res.sendFile(path.join(__dirname, 'poornima-oracle.svg'));
-});
-
-app.get('/api/health', (req, res) => {
-  res.json({
-    ok: true,
-    configured: missingEnvVars.length === 0,
+async function handleChatRequest(deps, req, res) {
+  const {
+    ai,
+    pineconeIndex,
+    queryCache,
     missingEnvVars,
-    fallback: {
-      enabled: fallbackRouter.isEnabled(),
-      configured: fallbackRouter.isConfigured(),
-      providers: fallbackRouter.getAvailableProviders(),
-    },
-    mcp: mcpManager.getStatus(),
-    uptimeSeconds: Math.floor(process.uptime()),
-    memoryUsage: process.memoryUsage(),
-    timestamp: new Date().toISOString(),
-  });
-});
+    config,
+    pineconeRequestSignalStorage,
+  } = deps;
 
-app.get('/api/test-models', async (req, res) => {
-  const results = {};
-  if (!ai) {
-    return res.status(500).json({ error: 'AI not initialized' });
-  }
-
-  // 1. Try listing models
-  try {
-    const listRes = await ai.models.list();
-    const models = [];
-    if (listRes && typeof listRes[Symbol.asyncIterator] === 'function') {
-      for await (const m of listRes) {
-        models.push(m.name || m.id || m);
-      }
-    } else if (Array.isArray(listRes?.models)) {
-      models.push(...listRes.models.map(m => m.name || m.id || m));
-    }
-    results.availableModels = models.slice(0, 30);
-  } catch (listErr) {
-    results.listError = listErr?.message || String(listErr);
-  }
-
-  // 2. Test generation on common model candidates
-  const candidates = ['gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
-  results.tests = {};
-  for (const m of candidates) {
-    try {
-      const resp = await ai.models.generateContent({
-        model: m,
-        contents: 'Hi',
-      });
-      results.tests[m] = { success: true, text: resp?.text?.slice(0, 50) || 'OK' };
-    } catch (err) {
-      results.tests[m] = { success: false, error: err?.message || String(err) };
-    }
-  }
-
-  res.json(results);
-});
-
-app.get('/api/calendar', async (req, res) => {
-  try {
-    const requestedCampus = String(req.query.campus || req.query.college || 'ALL').toUpperCase();
-    const campus = ['PU', 'PCE', 'PIET', 'GENERAL', 'ALL'].includes(requestedCampus)
-      ? requestedCampus
-      : 'ALL';
-    const category = (req.query.category || 'all').toLowerCase();
-    const daysAhead = parsePositiveInteger(req.query.daysAhead, 90);
-    const limit = parseBoundedInteger(req.query.limit, 25, 1, 100);
-
-    const data = await getUpcomingCalendarEvents({
-      college: campus,
-      category,
-      daysAhead,
-      limit,
-    });
-
-    res.json({
-      ok: true,
-      ...data,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (err) {
-    console.error('Error fetching calendar events in /api/calendar:', err);
-    res.status(500).json({
-      ok: false,
-      error: 'Failed to retrieve academic calendar events',
-    });
-  }
-});
-
-app.post('/api/chat', chatRateLimiter, async (req, res) => {
   const clientAbortController = new AbortController();
-  // `req` emits 'close' as soon as its body has been consumed, so listening on it
-  // aborts every request. The response's 'close' only fires on real disconnects.
-  res.on('close', () => {
-    if (!res.writableEnded) {
-      clientAbortController.abort();
-    }
-  });
+  const permitState = { acquired: false };
+  let clientDisconnected = false;
+  let timedOut = false;
+  let overallTimer = null;
+  let idleTimer = null;
+  let heartbeatTimer = null;
 
-  const message = chatContract.cleanPlainText(req.body?.message, MAX_MESSAGE_CHARS);
-  const history = Array.isArray(req.body?.history) ? req.body.history : [];
-  const profile = sanitizeProfile(req.body?.profile);
-
-  const clientOpenRouterKey = req.headers['x-openrouter-key'] ? String(req.headers['x-openrouter-key']).trim().slice(0, 512) : '';
-  const clientOllamaKey = req.headers['x-ollama-key'] ? String(req.headers['x-ollama-key']).trim().slice(0, 512) : '';
-  const clientOllamaHost = getAllowedOllamaHost(req.headers['x-ollama-host']);
-  const clientFallbackHeader = req.headers['x-fallback-enabled'] ? String(req.headers['x-fallback-enabled']).trim() : '';
-  const fallbackEnabled = clientFallbackHeader ? clientFallbackHeader !== 'false' : undefined;
-  // Provider credentials/hosts are client-supplied, so their answers must never
-  // enter the shared query cache (otherwise one response can be served to all users).
-  const hasProviderOverrides = Boolean(clientOpenRouterKey || clientOllamaKey || clientOllamaHost);
-  const queryCacheKey = message && !hasProviderOverrides
-    ? getQueryCacheKey(message, history, profile)
-    : null;
-
-  const currentFallbackRouter = fallbackRouter.withOverrides({
-    ...(clientOpenRouterKey ? { openrouterApiKey: clientOpenRouterKey } : {}),
-    ...(clientOllamaKey ? { ollamaApiKey: clientOllamaKey } : {}),
-    ...(clientOllamaHost ? { ollamaHost: clientOllamaHost } : {}),
-    ...(fallbackEnabled !== undefined ? { enabled: fallbackEnabled } : {}),
-  });
-
-  try {
-    if (!message) {
-      return res.status(400).json({ error: 'Message is required.' });
-    }
-
-    if (message.length > MAX_MESSAGE_CHARS) {
-      return res.status(400).json({
-        error: `Message must be ${MAX_MESSAGE_CHARS} characters or less.`,
-      });
-    }
-
-    const cachedResponse = queryCacheKey ? queryCache.get(queryCacheKey) : null;
-    if (cachedResponse) {
-      console.log('Cache hit for query:', message.slice(0, 200));
-      return writeCachedResponse(res, cachedResponse);
-    }
-
-    if (missingEnvVars.length > 0 || !ai || !pineconeIndex) {
-      if (currentFallbackRouter.isConfigured()) {
-        console.log('Primary RAG unconfigured or missing env vars. Escalating directly to Fallback Router.');
-        return streamFallbackResponse(res, {
-          message,
-          history,
-          contextSnippets: '',
-          profile,
-          reason: 'primary_unconfigured',
-          clientAbortController,
-          queryCacheKey,
-          router: currentFallbackRouter,
-        });
-      }
-      return res.status(503).json({
-        error: `Server is missing required environment variables: ${missingEnvVars.join(', ')}.`,
-      });
-    }
-
-    console.log('User query:', message.slice(0, 200));
-
-    if (isAbusive(message)) {
-      setSseHeaders(res);
-      const answer = 'Please keep the conversation respectful and campus-related. How can I assist you with Poornima academic or administrative queries?';
-      writeSse(res, 'sources', { sources: [] });
-      writeSse(res, 'token', { text: answer });
-      writeSse(res, 'done', { answer, sources: [] });
-      return res.end();
-    }
-
-    let queryVector;
-    try {
-      queryVector = await createQueryEmbedding(message);
-    } catch (embedError) {
-      console.warn('Embedding generation failed:', embedError?.message || embedError);
-      if (currentFallbackRouter.isConfigured()) {
-        console.log('Embedding generation failed. Escalating to Fallback Router.');
-        return streamFallbackResponse(res, {
-          message,
-          history,
-          contextSnippets: '',
-          reason: 'embedding_error',
-          clientAbortController,
-          queryCacheKey,
-          router: currentFallbackRouter,
-        });
-      }
-      return res.status(502).json({ error: 'Failed to generate an embedding for the query.' });
-    }
-
-    if (!Array.isArray(queryVector) || queryVector.length === 0) {
-      if (currentFallbackRouter.isConfigured()) {
-        console.log('Empty embedding vector received. Escalating to Fallback Router.');
-        return streamFallbackResponse(res, {
-          message,
-          history,
-          contextSnippets: '',
-          reason: 'embedding_empty',
-          clientAbortController,
-          queryCacheKey,
-          router: currentFallbackRouter,
-        });
-      }
-      return res.status(502).json({ error: 'Failed to generate an embedding for the query.' });
-    }
-
-    let queryResponse;
-    try {
-      // === RAG 2.0: Dual-Namespace Parallel Query ===
-      // Query both the handbook (__default__) and notices namespaces concurrently
-      const baseQueryOptions = {
-        topK: RAG_TOP_K,
-        vector: queryVector,
-        includeMetadata: true,
-      };
-
-      const handbookQuery = (pineconeNamespace
-        ? pineconeIndex.namespace(pineconeNamespace)
-        : pineconeIndex).query(baseQueryOptions);
-
-      const noticesQuery = pineconeIndex.namespace(NOTICES_NAMESPACE).query(baseQueryOptions);
-
-      const [handbookResult, noticesResult] = await Promise.allSettled([handbookQuery, noticesQuery]);
-
-      // Merge matches from both namespaces
-      const handbookMatches = handbookResult.status === 'fulfilled'
-        ? (Array.isArray(handbookResult.value?.matches) ? handbookResult.value.matches : [])
-        : [];
-      const noticeMatches = noticesResult.status === 'fulfilled'
-        ? (Array.isArray(noticesResult.value?.matches) ? noticesResult.value.matches : [])
-        : [];
-
-      if (handbookResult.status === 'rejected') {
-        console.warn('Handbook namespace query failed:', handbookResult.reason?.message || handbookResult.reason);
-      }
-      if (noticesResult.status === 'rejected') {
-        console.warn('Notices namespace query failed:', noticesResult.reason?.message || noticesResult.reason);
-      }
-
-      // Tag notice matches with portal-notice IDs for frontend badge rendering
-      for (const match of noticeMatches) {
-        if (match?.id && !match.id.startsWith('portal-notice-')) {
-          match.id = `portal-notice-${match.id}`;
-        }
-      }
-
-      // Combine and sort by cosine similarity score (descending)
-      const allMatches = [...handbookMatches, ...noticeMatches]
-        .sort((a, b) => (b?.score || 0) - (a?.score || 0));
-
-      queryResponse = { matches: allMatches };
-
-      console.log(`RAG 2.0: Handbook=${handbookMatches.length} + Notices=${noticeMatches.length} → ${allMatches.length} total matches`);
-    } catch (pineconeError) {
-      console.warn('Pinecone query failed:', pineconeError?.message || pineconeError);
-      if (currentFallbackRouter.isConfigured()) {
-        console.log('Pinecone query failed. Escalating to Fallback Router.');
-        return streamFallbackResponse(res, {
-          message,
-          history,
-          contextSnippets: '',
-          profile,
-          reason: 'pinecone_error',
-          clientAbortController,
-          queryCacheKey,
-          router: currentFallbackRouter,
-        });
-      }
-      throw pineconeError;
-    }
-
-    const matches = Array.isArray(queryResponse?.matches) ? queryResponse.matches : [];
-    const relevantMatches = filterRelevantMatches(matches);
-    const contextSnippets = buildContextSnippets(relevantMatches);
-    const historyContext = buildHistoryContext(history, message);
-    const sources = buildSources(relevantMatches);
-
-    // Tier 2 #6: Grounding with official Academic Calendar & Exam Schedule
-    let calendarContext = '';
-    try {
-      calendarContext = await getCalendarContextForPrompt(profile?.college || 'ALL', 5);
-    } catch (calErr) {
-      console.warn('Calendar context lookup failed:', calErr?.message || calErr);
-    }
-
-    const combinedSnippets = calendarContext
-      ? (contextSnippets ? `${calendarContext}\n\n${contextSnippets}` : calendarContext)
-      : contextSnippets;
-
-    if (calendarContext) {
-      sources.unshift({
-        id: 'live-academic-calendar',
-        title: 'Poornima Academic Calendar (Live Feed)',
-        url: 'https://calendar.google.com',
-        score: 0.95,
-        category: 'Academic Calendar',
-        college: profile?.college || 'ALL',
-      });
-    }
-
-    if (clientAbortController.signal.aborted) {
-      endResponseQuietly(res);
+  const abortForDisconnect = () => {
+    if (res.writableEnded) {
       return;
     }
-
-    // Trigger Condition: Knowledge gap (no relevant matches with score >= RAG_MIN_SCORE AND no calendar context)
-    if (relevantMatches.length === 0 && !calendarContext && currentFallbackRouter.isConfigured()) {
-      console.log(`Knowledge gap detected: 0 matches with score >= ${RAG_MIN_SCORE}. Escalating to Fallback Router.`);
-      return streamFallbackResponse(res, {
-        message,
-        history,
-        contextSnippets: '',
-        profile,
-        reason: 'knowledge_gap',
-        clientAbortController,
-        queryCacheKey,
-        initialSources: sources,
-        router: currentFallbackRouter,
-      });
+    clientDisconnected = true;
+    if (!clientAbortController.signal.aborted) {
+      clientAbortController.abort(new Error('Client disconnected.'));
     }
+  };
 
-    setSseHeaders(res);
-    writeSse(res, 'sources', { sources });
+  // `req` emits 'close' once its body has been fully consumed, so only treat it
+  // as a disconnect when the request itself never completed. The response's
+  // 'close' fires on real client aborts.
+  const onRequestClose = () => {
+    if (req.complete === false) {
+      abortForDisconnect();
+    }
+  };
+  const onResponseClose = () => {
+    if (!res.writableEnded) {
+      abortForDisconnect();
+    }
+  };
+  req.on('close', onRequestClose);
+  res.on('close', onResponseClose);
 
-    let stream;
-    try {
-      stream = await startAnswerStream(message, historyContext, combinedSnippets, profile, clientAbortController.signal);
-    } catch (geminiError) {
-      console.warn('Primary Gemini stream start failed:', geminiError?.message || geminiError);
-      if (currentFallbackRouter.isConfigured()) {
-        console.log('Gemini start failed. Escalating to Fallback Router.');
-        return streamFallbackResponse(res, {
-          message,
-          history,
-          contextSnippets: combinedSnippets,
-          profile,
-          reason: isTransientError(geminiError) ? 'gemini_quota' : 'gemini_error',
-          clientAbortController,
-          queryCacheKey,
-          initialSources: sources,
-          router: currentFallbackRouter,
+  const markTimedOut = () => {
+    if (clientDisconnected || timedOut) {
+      return;
+    }
+    timedOut = true;
+    if (!clientAbortController.signal.aborted) {
+      clientAbortController.abort(createRequestTimeoutError());
+    }
+  };
+
+  const clearIdleTimer = () => {
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+      idleTimer = null;
+    }
+  };
+  const resetIdleTimer = () => {
+    clearIdleTimer();
+    if (config.answerIdleTimeoutMs > 0) {
+      idleTimer = setTimeout(markTimedOut, config.answerIdleTimeoutMs);
+      idleTimer.unref?.();
+    }
+  };
+  const startOverallTimer = () => {
+    if (config.answerTimeoutMs > 0 && !overallTimer) {
+      overallTimer = setTimeout(markTimedOut, config.answerTimeoutMs);
+      overallTimer.unref?.();
+    }
+  };
+  const stopHeartbeat = () => {
+    if (heartbeatTimer) {
+      stopAnswerHeartbeat(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+  };
+
+  try {
+    return await pineconeRequestSignalStorage.run(clientAbortController.signal, async () => {
+      let message = '';
+      let history = [];
+      let profile = null;
+      let queryCacheKey = null;
+      let currentFallbackRouter = fallbackRouter;
+
+      try {
+        message = chatContract.cleanPlainText(req.body?.message, MAX_MESSAGE_CHARS);
+        history = Array.isArray(req.body?.history) ? req.body.history : [];
+        profile = sanitizeProfile(req.body?.profile);
+
+        const clientOpenRouterKey = req.headers['x-openrouter-key'] ? String(req.headers['x-openrouter-key']).trim().slice(0, 512) : '';
+        const clientOllamaKey = req.headers['x-ollama-key'] ? String(req.headers['x-ollama-key']).trim().slice(0, 512) : '';
+        const clientOllamaHost = getAllowedOllamaHost(req.headers['x-ollama-host']);
+        const clientFallbackHeader = req.headers['x-fallback-enabled'] ? String(req.headers['x-fallback-enabled']).trim() : '';
+        const fallbackEnabled = clientFallbackHeader ? clientFallbackHeader !== 'false' : undefined;
+        // Provider credentials/hosts are client-supplied, so their answers must never
+        // enter the shared query cache (otherwise one response can be served to all users).
+        const hasProviderOverrides = Boolean(clientOpenRouterKey || clientOllamaKey || clientOllamaHost);
+        queryCacheKey = message && !hasProviderOverrides
+          ? getQueryCacheKey(message, history, profile)
+          : null;
+
+        currentFallbackRouter = fallbackRouter.withOverrides({
+          ...(clientOpenRouterKey ? { openrouterApiKey: clientOpenRouterKey } : {}),
+          ...(clientOllamaKey ? { ollamaApiKey: clientOllamaKey } : {}),
+          ...(clientOllamaHost ? { ollamaHost: clientOllamaHost } : {}),
+          ...(fallbackEnabled !== undefined ? { enabled: fallbackEnabled } : {}),
         });
-      }
-      throw geminiError;
-    }
 
-    let answer = '';
-    let refusalBuffer = '';
-    let refusalChecked = false;
-    const REFUSAL_BUFFER_MAX = 220;
-
-    for await (const chunk of stream) {
-      if (clientAbortController.signal.aborted) {
-        break;
-      }
-
-      const text = typeof chunk?.text === 'string' ? chunk.text : '';
-      if (!text) {
-        continue;
-      }
-
-      answer += text;
-
-      // Check if primary response starts with a refusal phrase
-      if (!refusalChecked && currentFallbackRouter.isConfigured()) {
-        refusalBuffer += text;
-        if (refusalBuffer.length < REFUSAL_BUFFER_MAX) {
-          continue;
+        if (!message) {
+          return sendJson(res, 400, { error: 'Message is required.' });
         }
 
-        if (isRefusalResponse(refusalBuffer)) {
-          console.log('Gemini output indicates refusal / lack of information. Escalating to Fallback Router.');
-          refusalChecked = true;
-          return streamFallbackResponse(res, {
+        if (message.length > MAX_MESSAGE_CHARS) {
+          return sendJson(res, 400, {
+            error: `Message must be ${MAX_MESSAGE_CHARS} characters or less.`,
+          });
+        }
+
+        const cachedResponse = queryCacheKey ? queryCache.get(queryCacheKey) : null;
+        if (cachedResponse) {
+          return writeCachedResponse(res, cachedResponse);
+        }
+
+        if (!acquireGenerationPermit(deps)) {
+          res.set('Retry-After', '5');
+          return sendJson(res, 429, { error: 'Chat service is busy. Please try again shortly.' });
+        }
+        permitState.acquired = true;
+
+        if (missingEnvVars.length > 0 || !ai || !pineconeIndex) {
+          if (currentFallbackRouter.isConfigured()) {
+            return streamFallbackResponse(deps, res, {
+              message,
+              history,
+              contextSnippets: '',
+              profile,
+              reason: 'primary_unconfigured',
+              clientAbortController,
+              queryCacheKey,
+              router: currentFallbackRouter,
+            });
+          }
+          return sendJson(res, 503, {
+            error: `Server is missing required environment variables: ${missingEnvVars.join(', ')}.`,
+          });
+        }
+
+        if (isAbusive(message)) {
+          setSseHeaders(res);
+          const answer = 'Please keep the conversation respectful and campus-related. How can I assist you with Poornima academic or administrative queries?';
+          writeSse(res, 'sources', { sources: [] });
+          writeSse(res, 'token', { text: answer });
+          writeSse(res, 'done', { answer, sources: [] });
+          return endResponseQuietly(res);
+        }
+
+        let queryVector;
+        try {
+          queryVector = await createQueryEmbedding(deps, message);
+        } catch (embedError) {
+          if (clientDisconnected) {
+            return endResponseQuietly(res);
+          }
+          if (timedOut || isAbortOrTimeoutError(embedError)) {
+            throw embedError;
+          }
+          console.warn('Embedding generation failed:', embedError?.message || embedError);
+          if (currentFallbackRouter.isConfigured()) {
+            return streamFallbackResponse(deps, res, {
+              message,
+              history,
+              contextSnippets: '',
+              profile,
+              reason: 'embedding_error',
+              clientAbortController,
+              queryCacheKey,
+              router: currentFallbackRouter,
+            });
+          }
+          return sendJson(res, 502, { error: 'Failed to generate an embedding for the query.' });
+        }
+
+        if (clientDisconnected) {
+          return endResponseQuietly(res);
+        }
+        if (timedOut) {
+          throw createRequestTimeoutError();
+        }
+
+        if (!Array.isArray(queryVector) || queryVector.length === 0) {
+          if (currentFallbackRouter.isConfigured()) {
+            return streamFallbackResponse(deps, res, {
+              message,
+              history,
+              contextSnippets: '',
+              profile,
+              reason: 'embedding_empty',
+              clientAbortController,
+              queryCacheKey,
+              router: currentFallbackRouter,
+            });
+          }
+          return sendJson(res, 502, { error: 'Failed to generate an embedding for the query.' });
+        }
+
+        let allMatches = [];
+        try {
+          // === RAG 2.0: Dual-Namespace Parallel Query ===
+          // Query both the handbook (__default__) and notices namespaces concurrently
+          const baseQueryOptions = {
+            topK: config.ragTopK,
+            vector: queryVector,
+            includeMetadata: true,
+          };
+
+          const hasNamespaceApi = typeof pineconeIndex.namespace === 'function';
+          let handbookMatches = [];
+          let noticeMatches = [];
+
+          if (hasNamespaceApi) {
+            const handbookIndex = config.pineconeNamespace
+              ? pineconeIndex.namespace(config.pineconeNamespace)
+              : pineconeIndex;
+
+            const [handbookResult, noticesResult] = await Promise.allSettled([
+              handbookIndex.query(baseQueryOptions),
+              pineconeIndex.namespace(NOTICES_NAMESPACE).query(baseQueryOptions),
+            ]);
+
+            handbookMatches = handbookResult.status === 'fulfilled'
+              ? (Array.isArray(handbookResult.value?.matches) ? handbookResult.value.matches : [])
+              : [];
+            noticeMatches = noticesResult.status === 'fulfilled'
+              ? (Array.isArray(noticesResult.value?.matches) ? noticesResult.value.matches : [])
+              : [];
+
+            if (handbookResult.status === 'rejected') {
+              console.warn('Handbook namespace query failed:', handbookResult.reason?.message || handbookResult.reason);
+            }
+            if (noticesResult.status === 'rejected') {
+              console.warn('Notices namespace query failed:', noticesResult.reason?.message || noticesResult.reason);
+            }
+          } else {
+            // Plain-object Pinecone mocks (and legacy single-index clients) do
+            // not expose namespace(); query the default index only.
+            const handbookResult = await pineconeIndex.query(baseQueryOptions);
+            handbookMatches = Array.isArray(handbookResult?.matches) ? handbookResult.matches : [];
+          }
+
+          // Tag notice matches with portal-notice IDs for frontend badge rendering
+          for (const match of noticeMatches) {
+            if (match?.id && !match.id.startsWith('portal-notice-')) {
+              match.id = `portal-notice-${match.id}`;
+            }
+          }
+
+          // Combine and sort by cosine similarity score (descending)
+          allMatches = [...handbookMatches, ...noticeMatches]
+            .sort((a, b) => (b?.score || 0) - (a?.score || 0));
+
+          console.log(`RAG 2.0: Handbook=${handbookMatches.length} + Notices=${noticeMatches.length} → ${allMatches.length} total matches`);
+        } catch (pineconeError) {
+          if (clientDisconnected) {
+            return endResponseQuietly(res);
+          }
+          console.warn('Pinecone query failed:', pineconeError?.message || pineconeError);
+          if (currentFallbackRouter.isConfigured()) {
+            return streamFallbackResponse(deps, res, {
+              message,
+              history,
+              contextSnippets: '',
+              profile,
+              reason: 'pinecone_error',
+              clientAbortController,
+              queryCacheKey,
+              router: currentFallbackRouter,
+            });
+          }
+          throw pineconeError;
+        }
+
+        if (clientDisconnected) {
+          return endResponseQuietly(res);
+        }
+        if (timedOut) {
+          throw createRequestTimeoutError();
+        }
+
+        const relevantMatches = filterRelevantMatches(allMatches, config.ragMinScore);
+        const contextSnippets = buildContextSnippets(relevantMatches);
+        const historyContext = buildHistoryContext(history, message);
+        const sources = buildSources(relevantMatches);
+
+        // Tier 2 #6: Grounding with official Academic Calendar & Exam Schedule
+        let calendarContext = '';
+        try {
+          calendarContext = await deps.calendarContextForPrompt(profile?.college || 'ALL', 5);
+        } catch (calErr) {
+          console.warn('Calendar context lookup failed:', calErr?.message || calErr);
+        }
+
+        if (clientDisconnected) {
+          return endResponseQuietly(res);
+        }
+        if (timedOut) {
+          throw createRequestTimeoutError();
+        }
+
+        const combinedSnippets = calendarContext
+          ? (contextSnippets ? `${calendarContext}\n\n${contextSnippets}` : calendarContext)
+          : contextSnippets;
+
+        if (calendarContext) {
+          // Keep retrieved document sources first so citations stay stable.
+          sources.push({
+            id: 'live-academic-calendar',
+            title: 'Poornima Academic Calendar (Live Feed)',
+            url: 'https://calendar.google.com',
+            score: 0.95,
+            category: 'Academic Calendar',
+            college: profile?.college || 'ALL',
+          });
+        }
+
+        // Trigger Condition: Knowledge gap (no relevant matches with score >= RAG_MIN_SCORE AND no calendar context)
+        if (relevantMatches.length === 0 && !calendarContext && currentFallbackRouter.isConfigured()) {
+          console.log(`Knowledge gap detected: 0 matches with score >= ${config.ragMinScore}. Escalating to Fallback Router.`);
+          return streamFallbackResponse(deps, res, {
             message,
             history,
-            contextSnippets: combinedSnippets,
+            contextSnippets: '',
             profile,
-            reason: 'refusal',
+            reason: 'knowledge_gap',
             clientAbortController,
             queryCacheKey,
             initialSources: sources,
@@ -1194,243 +1310,727 @@ app.post('/api/chat', chatRateLimiter, async (req, res) => {
           });
         }
 
-        refusalChecked = true;
-        writeSse(res, 'token', { text: refusalBuffer });
-      } else {
-        writeSse(res, 'token', { text });
+        startOverallTimer();
+
+        let stream;
+        try {
+          stream = await startAnswerStream(
+            deps,
+            message,
+            historyContext,
+            combinedSnippets,
+            profile,
+            clientAbortController.signal
+          );
+        } catch (geminiError) {
+          if (clientDisconnected) {
+            return endResponseQuietly(res);
+          }
+          if (timedOut || isAbortOrTimeoutError(geminiError)) {
+            throw geminiError;
+          }
+
+          const providerStatus = getErrorStatus(geminiError);
+          if (providerStatus === 429) {
+            res.set('Retry-After', '30');
+            return sendJson(res, 429, { error: BUSY_ERROR_MESSAGE });
+          }
+          if (providerStatus === 400) {
+            return sendJson(res, 502, { error: PROVIDER_REQUEST_ERROR_MESSAGE });
+          }
+
+          console.warn('Primary Gemini stream start failed:', geminiError?.message || geminiError);
+          if (currentFallbackRouter.isConfigured()) {
+            console.log('Gemini start failed. Escalating to Fallback Router.');
+            return streamFallbackResponse(deps, res, {
+              message,
+              history,
+              contextSnippets: combinedSnippets,
+              profile,
+              reason: isTransientError(geminiError) ? 'gemini_quota' : 'gemini_error',
+              clientAbortController,
+              queryCacheKey,
+              initialSources: sources,
+              router: currentFallbackRouter,
+            });
+          }
+          throw geminiError;
+        }
+
+        if (clientDisconnected) {
+          return endResponseQuietly(res);
+        }
+        if (timedOut) {
+          throw createRequestTimeoutError();
+        }
+        if (clientAbortController.signal.aborted) {
+          return endResponseQuietly(res);
+        }
+
+        setSseHeaders(res);
+        writeSse(res, 'sources', { sources });
+        heartbeatTimer = startAnswerHeartbeat(res);
+        resetIdleTimer();
+
+        let answer = '';
+        let refusalBuffer = '';
+        let refusalChecked = false;
+
+        try {
+          for await (const chunk of stream) {
+            // Reset on every chunk, including empty text chunks.
+            resetIdleTimer();
+
+            if (timedOut) {
+              break;
+            }
+            if (clientDisconnected) {
+              break;
+            }
+
+            const text = typeof chunk?.text === 'string' ? chunk.text : '';
+            if (!text) {
+              continue;
+            }
+
+            answer += text;
+
+            // Check if primary response starts with a refusal phrase
+            if (!refusalChecked && currentFallbackRouter.isConfigured()) {
+              refusalBuffer += text;
+              if (refusalBuffer.length < REFUSAL_BUFFER_MAX) {
+                continue;
+              }
+
+              if (isRefusalResponse(refusalBuffer)) {
+                console.log('Gemini output indicates refusal / lack of information. Escalating to Fallback Router.');
+                refusalChecked = true;
+                stopHeartbeat();
+                return streamFallbackResponse(deps, res, {
+                  message,
+                  history,
+                  contextSnippets: combinedSnippets,
+                  profile,
+                  reason: 'refusal',
+                  clientAbortController,
+                  queryCacheKey,
+                  initialSources: sources,
+                  router: currentFallbackRouter,
+                });
+              }
+
+              refusalChecked = true;
+              writeSse(res, 'token', { text: refusalBuffer });
+            } else {
+              writeSse(res, 'token', { text });
+            }
+          }
+        } catch (streamError) {
+          if (clientDisconnected) {
+            return endResponseQuietly(res);
+          }
+          if (timedOut || isAbortOrTimeoutError(streamError)) {
+            if (!res.destroyed && !res.writableEnded) {
+              writeSse(res, 'error', { error: TIMEOUT_ERROR_MESSAGE });
+              endResponseQuietly(res);
+            }
+            return;
+          }
+          throw streamError;
+        } finally {
+          clearIdleTimer();
+        }
+
+        if (timedOut) {
+          if (!res.destroyed && !res.writableEnded) {
+            writeSse(res, 'error', { error: TIMEOUT_ERROR_MESSAGE });
+            endResponseQuietly(res);
+          }
+          return;
+        }
+        if (clientDisconnected || clientAbortController.signal.aborted) {
+          return endResponseQuietly(res);
+        }
+
+        // Check refusal on short responses (< REFUSAL_BUFFER_MAX)
+        if (!refusalChecked && refusalBuffer) {
+          if (currentFallbackRouter.isConfigured() && isRefusalResponse(refusalBuffer)) {
+            console.log('Short refusal response detected from Gemini. Escalating to Fallback Router.');
+            stopHeartbeat();
+            return streamFallbackResponse(deps, res, {
+              message,
+              history,
+              contextSnippets,
+              profile,
+              reason: 'refusal',
+              clientAbortController,
+              queryCacheKey,
+              initialSources: sources,
+              router: currentFallbackRouter,
+            });
+          }
+          writeSse(res, 'token', { text: refusalBuffer });
+        }
+
+        answer = answer.trim() || PLACEHOLDER_ANSWER;
+        if (queryCacheKey && answer !== PLACEHOLDER_ANSWER) {
+          queryCache.set(queryCacheKey, { answer, sources });
+        }
+        writeSse(res, 'done', { answer, sources });
+        endResponseQuietly(res);
+      } catch (error) {
+        if (clientDisconnected) {
+          endResponseQuietly(res);
+          return;
+        }
+
+        if (timedOut || isAbortOrTimeoutError(error)) {
+          if (res.headersSent) {
+            writeSse(res, 'error', { error: TIMEOUT_ERROR_MESSAGE });
+            endResponseQuietly(res);
+          } else {
+            sendJson(res, 504, { error: TIMEOUT_ERROR_MESSAGE });
+          }
+          return;
+        }
+
+        const providerStatus = getErrorStatus(error);
+        if (providerStatus === 429) {
+          if (res.headersSent) {
+            writeSse(res, 'error', { error: BUSY_ERROR_MESSAGE });
+            endResponseQuietly(res);
+          } else {
+            res.set('Retry-After', '30');
+            sendJson(res, 429, { error: BUSY_ERROR_MESSAGE });
+          }
+          return;
+        }
+        if (providerStatus === 400) {
+          if (res.headersSent) {
+            writeSse(res, 'error', { error: PROVIDER_REQUEST_ERROR_MESSAGE });
+            endResponseQuietly(res);
+          } else {
+            sendJson(res, 502, { error: PROVIDER_REQUEST_ERROR_MESSAGE });
+          }
+          return;
+        }
+
+        if (!res.headersSent && currentFallbackRouter.isConfigured()) {
+          console.warn('Recovering from error in /api/chat via Fallback Router:', error?.message || error);
+          return streamFallbackResponse(deps, res, {
+            message,
+            history,
+            contextSnippets: '',
+            profile,
+            reason: 'chat_error',
+            clientAbortController,
+            queryCacheKey,
+            router: currentFallbackRouter,
+          });
+        }
+
+        const apiKeyError = detectApiKeyError(error);
+        if (apiKeyError.isApiKeyError) {
+          logApiKeyError(apiKeyError.service, apiKeyError.reason, error);
+          if (res.headersSent) {
+            writeSse(res, 'error', {
+              error: `API key error with ${apiKeyError.service}: ${apiKeyError.reason}. Please check server console for details.`,
+            });
+            endResponseQuietly(res);
+            return;
+          }
+
+          sendJson(res, 401, {
+            error: `API key error with ${apiKeyError.service}: ${apiKeyError.reason}. Please check server console for details.`,
+          });
+          return;
+        }
+        console.error('Error in /api/chat:', error);
+        const userFacingError = error?.message ? `Failed to process query: ${error.message}` : 'Failed to process the query.';
+        if (res.headersSent) {
+          writeSse(res, 'error', { error: userFacingError });
+          endResponseQuietly(res);
+        } else {
+          sendJson(res, 500, { error: userFacingError });
+        }
+      } finally {
+        clearIdleTimer();
+        if (overallTimer) {
+          clearTimeout(overallTimer);
+          overallTimer = null;
+        }
+        stopHeartbeat();
+        releaseGenerationPermit(deps, permitState);
       }
-    }
-
-    if (clientAbortController.signal.aborted) {
-      endResponseQuietly(res);
-      return;
-    }
-
-    // Check refusal on short responses (< REFUSAL_BUFFER_MAX)
-    if (!refusalChecked && refusalBuffer) {
-      if (currentFallbackRouter.isConfigured() && isRefusalResponse(refusalBuffer)) {
-        console.log('Short refusal response detected from Gemini. Escalating to Fallback Router.');
-        return streamFallbackResponse(res, {
-          message,
-          history,
-          contextSnippets,
-          profile,
-          reason: 'refusal',
-          clientAbortController,
-          queryCacheKey,
-          initialSources: sources,
-          router: currentFallbackRouter,
-        });
-      }
-      writeSse(res, 'token', { text: refusalBuffer });
-    }
-
-    answer = answer.trim() || 'I could not generate a response. Please try again.';
-    if (queryCacheKey && answer !== 'I could not generate a response. Please try again.') {
-      queryCache.set(queryCacheKey, { answer, sources });
-    }
-    writeSse(res, 'done', { answer, sources });
-    res.end();
-  } catch (error) {
-    if (!res.headersSent && currentFallbackRouter.isConfigured()) {
-      console.warn('Recovering from error in /api/chat via Fallback Router:', error?.message || error);
-      return streamFallbackResponse(res, {
-        message,
-        history,
-        contextSnippets: '',
-        profile,
-        reason: 'chat_error',
-        clientAbortController,
-        queryCacheKey,
-        router: currentFallbackRouter,
-      });
-    }
-
-    const apiKeyError = detectApiKeyError(error);
-    if (apiKeyError.isApiKeyError) {
-      logApiKeyError(apiKeyError.service, apiKeyError.reason, error);
-      if (res.headersSent) {
-        writeSse(res, 'error', {
-          error: `API key error with ${apiKeyError.service}: ${apiKeyError.reason}. Please check server console for details.`,
-        });
-        return res.end();
-      }
-
-      return res.status(401).json({
-        error: `API key error with ${apiKeyError.service}: ${apiKeyError.reason}. Please check server console for details.`,
-      });
-    }
-    console.error('Error in /api/chat:', error);
-    const userFacingError = error?.message ? `Failed to process query: ${error.message}` : 'Failed to process the query.';
-    if (res.headersSent) {
-      writeSse(res, 'error', { error: userFacingError });
-      return res.end();
-    }
-
-    res.status(500).json({ error: userFacingError });
+    });
+  } finally {
+    req.off('close', onRequestClose);
+    res.off('close', onResponseClose);
   }
-});
+}
 
-const feedbackRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many feedback submissions. Please wait and try again.' },
-});
+function getProvidedAdminKey(req) {
+  const adminKeyHeader = req.headers['x-admin-key'];
+  const authorizationHeader = req.headers.authorization;
+  const rawKey = adminKeyHeader
+    ? String(adminKeyHeader)
+    : (typeof authorizationHeader === 'string' ? authorizationHeader.replace('Bearer ', '') : '');
+  return rawKey.trim();
+}
 
-app.post('/api/feedback', feedbackRateLimiter, (req, res) => {
-  const rating = sanitizeText(req.body?.rating);
-
-  if (!['up', 'down'].includes(rating)) {
-    return res.status(400).json({ error: 'Feedback rating must be "up" or "down".' });
+function timingSafeStringEqual(left, right) {
+  const leftBuffer = Buffer.from(String(left ?? ''), 'utf8');
+  const rightBuffer = Buffer.from(String(right ?? ''), 'utf8');
+  if (leftBuffer.length !== rightBuffer.length) {
+    return false;
   }
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
 
-  const feedback = {
-    messageId: sanitizeText(req.body?.messageId),
-    rating,
-    question: sanitizeText(req.body?.question).slice(0, MAX_MESSAGE_CHARS),
-    answer: sanitizeText(req.body?.answer).slice(0, MAX_CONTEXT_CHARS),
-    sources: Array.isArray(req.body?.sources) ? req.body.sources.slice(0, 5) : [],
-    createdAt: new Date().toISOString(),
+function createApp(options = {}) {
+  const config = buildConfig(options.config);
+  const corsOrigins = parseCorsOrigins(config.corsOrigins);
+  const pineconeRequestSignalStorage = options.pineconeRequestSignalStorage || new AsyncLocalStorage();
+  const ai = Object.prototype.hasOwnProperty.call(options, 'ai') ? options.ai : createDefaultAi();
+  const pineconeIndex = Object.prototype.hasOwnProperty.call(options, 'pineconeIndex')
+    ? options.pineconeIndex
+    : createDefaultPineconeIndex(config, pineconeRequestSignalStorage);
+  const missingEnvVars = Array.isArray(options.missingEnvVars)
+    ? options.missingEnvVars
+    : getMissingEnvVars();
+  const queryCache = options.queryCache || createBoundedQueryCache(config);
+  const adminApiKey = Object.prototype.hasOwnProperty.call(options, 'adminApiKey')
+    ? String(options.adminApiKey || '').trim()
+    : getEnvTrim('ADMIN_API_KEY');
+  // Injectable so API tests never reach the live Google Calendar feed.
+  const calendarContextForPrompt = typeof options.calendarContextForPrompt === 'function'
+    ? options.calendarContextForPrompt
+    : getCalendarContextForPrompt;
+
+  const deps = {
+    ai,
+    pineconeIndex,
+    queryCache,
+    missingEnvVars,
+    config,
+    pineconeRequestSignalStorage,
+    adminApiKey,
+    calendarContextForPrompt,
+    activeGenerations: 0,
   };
 
-  console.log('Chat feedback:', JSON.stringify(feedback));
-  res.json({ ok: true });
-});
+  const app = express();
+  app.set('trust proxy', config.trustProxyHops);
+  app.locals.deps = deps;
 
-// ---------------------------------------------------------------------------
-// RAG 2.0: Notice Sync Admin Endpoint & Runner
-// ---------------------------------------------------------------------------
-
-let noticeSyncRunning = false;
-
-/**
- * Run the notice sync pipeline with shared AI/Pinecone clients.
- * Returns the sync result object.
- */
-async function runNoticeSync(options = {}) {
-  if (noticeSyncRunning) {
-    return { success: false, errors: ['A sync is already in progress.'] };
-  }
-
-  noticeSyncRunning = true;
-  try {
-    const result = await syncNotices({
-      ai: ai || undefined,
-      pineconeIndex: pineconeIndex || undefined,
-      ...options,
-    });
-    return result;
-  } finally {
-    noticeSyncRunning = false;
-  }
-}
-
-/**
- * POST /api/sync-notices — Admin-only endpoint to trigger notice ingestion.
- * Protected by ADMIN_API_KEY header check.
- */
-app.post('/api/sync-notices', async (req, res) => {
-  // Authenticate with admin API key
-  const providedKey = (req.headers['x-admin-key'] || req.headers['authorization']?.replace('Bearer ', '') || '').trim();
-
-  if (!adminApiKey) {
-    return res.status(503).json({
-      error: 'Admin API key not configured. Set ADMIN_API_KEY in environment.',
-    });
-  }
-
-  if (providedKey !== adminApiKey) {
-    return res.status(401).json({ error: 'Unauthorized. Invalid admin API key.' });
-  }
-
-  if (noticeSyncRunning) {
-    return res.status(409).json({ error: 'A notice sync is already in progress. Try again later.' });
-  }
-
-  const dryRun = req.body?.dryRun === true;
-
-  // Run sync asynchronously but respond with result
-  try {
-    console.log(`[NoticeSyncAPI] Manual sync triggered (dryRun=${dryRun})`);
-    const result = await runNoticeSync({ dryRun });
-    res.json({ ok: result.success, ...result });
-  } catch (err) {
-    console.error('[NoticeSyncAPI] Sync error:', err);
-    res.status(500).json({ error: 'Notice sync failed.', details: err.message });
-  }
-});
-
-async function gracefulShutdown(signal) {
-  console.log(`Received ${signal}. Closing HTTP server gracefully...`);
-  await mcpManager.closeAll().catch(() => {});
-  server.close(() => {
-    console.log('HTTP server closed. Exiting process.');
-    process.exit(0);
+  const chatRateLimiter = rateLimit({
+    windowMs: config.chatRateLimitWindowMs,
+    max: config.chatRateLimitMax,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many chat requests. Please wait and try again.' },
   });
-  setTimeout(() => {
-    console.error('Forced shutdown due to timeout.');
-    process.exit(1);
-  }, 10000).unref();
-}
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  const feedbackRateLimiter = rateLimit({
+    windowMs: config.feedbackRateLimitWindowMs,
+    max: config.feedbackRateLimitMax,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many feedback submissions. Please wait and try again.' },
+  });
 
-const server = app.listen(PORT, () => {
-  validateApiKeysAtStartup();
-  console.log(`Poornima Instructor server running on http://localhost:${PORT}`);
+  const jsonBodyParser = express.json({ limit: '32kb' });
 
-  if (fallbackRouter.isConfigured()) {
-    console.log(`[FallbackRouter] Dual Cloud Core Active: ${fallbackRouter.getAvailableProviders().join(' | ')}`);
-  } else {
-    console.log('[FallbackRouter] Idle (No fallback keys configured in environment)');
-  }
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        useDefaults: true,
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: [
+            "'self'",
+            "'unsafe-inline'",
+            'https://unpkg.com',
+            'https://cdnjs.cloudflare.com',
+          ],
+          scriptSrcAttr: ["'unsafe-inline'"],
+          styleSrc: [
+            "'self'",
+            "'unsafe-inline'",
+            'https://fonts.googleapis.com',
+            'https://unpkg.com',
+          ],
+          fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+          connectSrc: [
+            "'self'",
+            'https://poornima-oracle.onrender.com',
+            ...(corsOrigins || []),
+          ],
+          imgSrc: ["'self'", 'data:', 'https:'],
+          workerSrc: ["'self'", 'blob:'],
+        },
+      },
+    })
+  );
+  app.use(compression());
+  app.use(cors(corsOrigins ? { origin: corsOrigins } : undefined));
+  app.use('/src', express.static(path.join(__dirname, 'src'), { dotfiles: 'deny', index: false }));
 
-  mcpManager.initialize().then((status) => {
-    if (status.activeServersCount > 0) {
-      console.log(`[McpManager] Active MCP servers: ${status.activeServersCount}, Total MCP tools: ${status.totalToolsCount}`);
-    } else {
-      console.log('[McpManager] Ready (0 active external servers in mcp-servers.json)');
+  app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+  });
+
+  app.get('/index.html', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+  });
+
+  app.get('/styles.css', (req, res) => {
+    res.sendFile(path.join(__dirname, 'styles.css'));
+  });
+
+  app.get('/manifest.json', (req, res) => {
+    res.sendFile(path.join(__dirname, 'manifest.json'));
+  });
+
+  app.get('/sw.js', (req, res) => {
+    res.sendFile(path.join(__dirname, 'sw.js'));
+  });
+
+  app.get('/chat-contract.js', (req, res) => {
+    res.sendFile(path.join(__dirname, 'chat-contract.js'));
+  });
+
+  app.get('/chat-request-owner.js', (req, res) => {
+    res.sendFile(path.join(__dirname, 'chat-request-owner.js'));
+  });
+
+  app.get('/poornima-oracle.svg', (req, res) => {
+    res.sendFile(path.join(__dirname, 'poornima-oracle.svg'));
+  });
+
+  app.get('/api/health', (req, res) => {
+    res.json({
+      ok: true,
+      configured: missingEnvVars.length === 0,
+      missingEnvVars,
+      fallback: {
+        enabled: fallbackRouter.isEnabled(),
+        configured: fallbackRouter.isConfigured(),
+        providers: fallbackRouter.getAvailableProviders(),
+      },
+      mcp: mcpManager.getStatus(),
+      uptimeSeconds: Math.floor(process.uptime()),
+      memoryUsage: process.memoryUsage(),
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  app.get('/api/test-models', async (req, res) => {
+    if (!adminApiKey) {
+      return res.status(503).json({
+        error: 'Admin API key not configured. Set ADMIN_API_KEY in environment.',
+      });
     }
-  }).catch((err) => {
-    console.warn('[McpManager] Initialization warning:', err.message);
+    if (!timingSafeStringEqual(getProvidedAdminKey(req), adminApiKey)) {
+      return res.status(401).json({ error: 'Unauthorized. Invalid admin API key.' });
+    }
+
+    const results = {};
+    if (!ai) {
+      return res.status(500).json({ error: 'AI not initialized' });
+    }
+
+    // 1. Try listing models
+    try {
+      const listRes = await ai.models.list();
+      const models = [];
+      if (listRes && typeof listRes[Symbol.asyncIterator] === 'function') {
+        for await (const m of listRes) {
+          models.push(m.name || m.id || m);
+        }
+      } else if (Array.isArray(listRes?.models)) {
+        models.push(...listRes.models.map(m => m.name || m.id || m));
+      }
+      results.availableModels = models.slice(0, 30);
+    } catch (listErr) {
+      results.listError = listErr?.message || String(listErr);
+    }
+
+    // 2. Test generation on common model candidates
+    const candidates = ['gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
+    results.tests = {};
+    for (const m of candidates) {
+      try {
+        const resp = await ai.models.generateContent({
+          model: m,
+          contents: 'Hi',
+        });
+        results.tests[m] = { success: true, text: resp?.text?.slice(0, 50) || 'OK' };
+      } catch (err) {
+        results.tests[m] = { success: false, error: err?.message || String(err) };
+      }
+    }
+
+    res.json(results);
   });
 
-  // RAG 2.0: Schedule automatic notice sync cron
-  if (noticeSyncEnabled && cron.validate(noticeSyncCron)) {
-    cron.schedule(noticeSyncCron, async () => {
-      console.log(`[NoticeSyncCron] Scheduled sync triggered at ${new Date().toISOString()}`);
-      try {
-        const result = await runNoticeSync();
-        console.log(`[NoticeSyncCron] Sync completed: ${result.vectorsUpserted || 0} vectors upserted, ${result.errors?.length || 0} warnings`);
-      } catch (err) {
-        console.error('[NoticeSyncCron] Sync failed:', err.message);
+  app.get('/api/calendar', async (req, res) => {
+    try {
+      const requestedCampus = String(req.query.campus || req.query.college || 'ALL').toUpperCase();
+      const campus = ['PU', 'PCE', 'PIET', 'GENERAL', 'ALL'].includes(requestedCampus)
+        ? requestedCampus
+        : 'ALL';
+      const category = (req.query.category || 'all').toLowerCase();
+      const daysAhead = parsePositiveInteger(req.query.daysAhead, 90);
+      const limit = parseBoundedInteger(req.query.limit, 25, 1, 100);
+
+      const data = await getUpcomingCalendarEvents({
+        college: campus,
+        category,
+        daysAhead,
+        limit,
+      });
+
+      res.json({
+        ok: true,
+        ...data,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('Error fetching calendar events in /api/calendar:', err);
+      res.status(500).json({
+        ok: false,
+        error: 'Failed to retrieve academic calendar events',
+      });
+    }
+  });
+
+  app.post('/api/chat', jsonBodyParser, chatRateLimiter, (req, res) => {
+    handleChatRequest(deps, req, res).catch((error) => {
+      console.error('Unhandled error in /api/chat handler:', error);
+      if (!res.headersSent) {
+        sendJson(res, 500, { error: 'Failed to process the query.' });
+      } else {
+        endResponseQuietly(res);
       }
-    }, {
-      noOverlap: true,
     });
-    console.log(`[NoticeSyncCron] Scheduled: "${noticeSyncCron}" (server time / UTC)`);
-  } else if (!noticeSyncEnabled) {
-    console.log('[NoticeSyncCron] Disabled (NOTICE_SYNC_ENABLED=false)');
-  } else {
-    console.warn(`[NoticeSyncCron] Invalid cron expression: "${noticeSyncCron}". Skipping schedule.`);
+  });
+
+  app.post('/api/feedback', jsonBodyParser, feedbackRateLimiter, (req, res) => {
+    const rating = sanitizeText(req.body?.rating);
+
+    if (!['up', 'down'].includes(rating)) {
+      return res.status(400).json({ error: 'Feedback rating must be "up" or "down".' });
+    }
+
+    const rawAnswer = typeof req.body?.answer === 'string' ? req.body.answer : '';
+    if (rawAnswer.length > MAX_ANSWER_CHARS) {
+      return res.status(400).json({
+        error: `Feedback answer must be ${MAX_ANSWER_CHARS} characters or less.`,
+      });
+    }
+
+    const rawSources = Array.isArray(req.body?.sources)
+      ? req.body.sources.slice(0, MAX_FEEDBACK_SOURCES)
+      : [];
+    for (const source of rawSources) {
+      if (source && typeof source === 'object' &&
+        typeof source.title === 'string' &&
+        source.title.length > MAX_SOURCE_TITLE_CHARS) {
+        return res.status(400).json({
+          error: `Source title must be ${MAX_SOURCE_TITLE_CHARS} characters or less.`,
+        });
+      }
+    }
+
+    const feedback = {
+      messageId: sanitizeText(req.body?.messageId),
+      rating,
+      question: sanitizeText(req.body?.question).slice(0, MAX_MESSAGE_CHARS),
+      answer: sanitizeText(rawAnswer).slice(0, MAX_ANSWER_CHARS),
+      sources: rawSources,
+      createdAt: new Date().toISOString(),
+    };
+
+    // Never log student question/answer text; metadata only.
+    console.info('Chat feedback received:', JSON.stringify({
+      messageId: feedback.messageId,
+      rating: feedback.rating,
+      sourceCount: feedback.sources.length,
+    }));
+    res.json({ ok: true, messageId: feedback.messageId });
+  });
+
+  // ---------------------------------------------------------------------------
+  // RAG 2.0: Notice Sync Admin Endpoint & Runner
+  // ---------------------------------------------------------------------------
+
+  let noticeSyncRunning = false;
+
+  /**
+   * Run the notice sync pipeline with shared AI/Pinecone clients.
+   * Returns the sync result object.
+   */
+  async function runNoticeSync(syncOptions = {}) {
+    if (noticeSyncRunning) {
+      return { success: false, errors: ['A sync is already in progress.'] };
+    }
+
+    noticeSyncRunning = true;
+    try {
+      return await syncNotices({
+        ai: ai || undefined,
+        pineconeIndex: pineconeIndex || undefined,
+        ...syncOptions,
+      });
+    } finally {
+      noticeSyncRunning = false;
+    }
   }
 
-  if (missingEnvVars.length > 0) {
-    console.warn(`Missing environment variables: ${missingEnvVars.join(', ')}`);
-  }
-});
+  app.locals.runNoticeSync = runNoticeSync;
 
-server.on('error', (error) => {
-  if (error?.code === 'EADDRINUSE') {
-    console.error(`Port ${PORT} is already in use.`);
-    console.error('Stop the existing process or start with a different port, for example:');
-    console.error('  $env:PORT=3002; node server.js');
+  /**
+   * POST /api/sync-notices — Admin-only endpoint to trigger notice ingestion.
+   * Protected by ADMIN_API_KEY header check.
+   */
+  app.post('/api/sync-notices', jsonBodyParser, async (req, res) => {
+    if (!adminApiKey) {
+      return res.status(503).json({
+        error: 'Admin API key not configured. Set ADMIN_API_KEY in environment.',
+      });
+    }
+
+    if (!timingSafeStringEqual(getProvidedAdminKey(req), adminApiKey)) {
+      return res.status(401).json({ error: 'Unauthorized. Invalid admin API key.' });
+    }
+
+    if (noticeSyncRunning) {
+      return res.status(409).json({ error: 'A notice sync is already in progress. Try again later.' });
+    }
+
+    const dryRun = req.body?.dryRun === true;
+
+    // Run sync asynchronously but respond with result
+    try {
+      console.log(`[NoticeSyncAPI] Manual sync triggered (dryRun=${dryRun})`);
+      const result = await runNoticeSync({ dryRun });
+      res.json({ ok: result.success, ...result });
+    } catch (err) {
+      console.error('[NoticeSyncAPI] Sync error:', err);
+      res.status(500).json({ error: 'Notice sync failed.', details: err.message });
+    }
+  });
+
+  // Map body-parser failures to the stable JSON contract.
+  app.use((error, req, res, next) => {
+    if (res.headersSent) {
+      return next(error);
+    }
+    if (error?.type === 'entity.too.large' || error?.status === 413) {
+      return res.status(413).json({ error: 'Request body is too large.' });
+    }
+    if (
+      error?.type === 'entity.parse.failed' ||
+      (error instanceof SyntaxError && error?.status === 400 && 'body' in error)
+    ) {
+      return res.status(400).json({ error: 'Request body must contain valid JSON.' });
+    }
+    return next(error);
+  });
+
+  return app;
+}
+
+function startServer() {
+  const app = createApp();
+  const deps = app.locals.deps;
+  const PORT = Number(process.env.PORT) || 3001;
+
+  const server = app.listen(PORT, () => {
+    validateApiKeysAtStartup();
+    console.log(`Poornima Instructor server running on http://localhost:${PORT}`);
+
+    if (fallbackRouter.isConfigured()) {
+      console.log(`[FallbackRouter] Dual Cloud Core Active: ${fallbackRouter.getAvailableProviders().join(' | ')}`);
+    } else {
+      console.log('[FallbackRouter] Idle (No fallback keys configured in environment)');
+    }
+
+    mcpManager.initialize().then((status) => {
+      if (status.activeServersCount > 0) {
+        console.log(`[McpManager] Active MCP servers: ${status.activeServersCount}, Total MCP tools: ${status.totalToolsCount}`);
+      } else {
+        console.log('[McpManager] Ready (0 active external servers in mcp-servers.json)');
+      }
+    }).catch((err) => {
+      console.warn('[McpManager] Initialization warning:', err.message);
+    });
+
+    // RAG 2.0: Schedule automatic notice sync cron
+    if (noticeSyncEnabled && cron.validate(noticeSyncCron)) {
+      cron.schedule(noticeSyncCron, async () => {
+        console.log(`[NoticeSyncCron] Scheduled sync triggered at ${new Date().toISOString()}`);
+        try {
+          const result = await app.locals.runNoticeSync();
+          console.log(`[NoticeSyncCron] Sync completed: ${result.vectorsUpserted || 0} vectors upserted, ${result.errors?.length || 0} warnings`);
+        } catch (err) {
+          console.error('[NoticeSyncCron] Sync failed:', err.message);
+        }
+      }, {
+        noOverlap: true,
+      });
+      console.log(`[NoticeSyncCron] Scheduled: "${noticeSyncCron}" (server time / UTC)`);
+    } else if (!noticeSyncEnabled) {
+      console.log('[NoticeSyncCron] Disabled (NOTICE_SYNC_ENABLED=false)');
+    } else {
+      console.warn(`[NoticeSyncCron] Invalid cron expression: "${noticeSyncCron}". Skipping schedule.`);
+    }
+
+    if (deps.missingEnvVars.length > 0) {
+      console.warn(`Missing environment variables: ${deps.missingEnvVars.join(', ')}`);
+    }
+  });
+
+  server.on('error', (error) => {
+    if (error?.code === 'EADDRINUSE') {
+      console.error(`Port ${PORT} is already in use.`);
+      console.error('Stop the existing process or start with a different port, for example:');
+      console.error('  $env:PORT=3002; node server.js');
+      process.exit(1);
+    }
+
+    console.error('Server startup failed:', error);
     process.exit(1);
+  });
+
+  async function gracefulShutdown(signal) {
+    console.log(`Received ${signal}. Closing HTTP server gracefully...`);
+    await mcpManager.closeAll().catch(() => {});
+    server.close(() => {
+      console.log('HTTP server closed. Exiting process.');
+      process.exit(0);
+    });
+    setTimeout(() => {
+      console.error('Forced shutdown due to timeout.');
+      process.exit(1);
+    }, 10000).unref();
   }
 
-  console.error('Server startup failed:', error);
-  process.exit(1);
-});
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  process.on('unhandledRejection', (reason) => {
+    console.error('[Process] Unhandled promise rejection:', reason);
+  });
+  process.on('uncaughtException', (error) => {
+    console.error('[Process] Uncaught exception:', error);
+  });
+
+  return server;
+}
+
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = { createApp, createTimeoutFetch };

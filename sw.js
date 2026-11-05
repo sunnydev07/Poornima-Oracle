@@ -41,20 +41,30 @@ const PRECACHE_ASSETS = [
     './src/js/utils/markdown.js'
 ];
 
-// Install: precache app shell and static local dependencies
+// Install: precache the app shell, tolerate individual failures, then activate
+// immediately. A missing optional asset (icon, vendor script) must never leave
+// the worker uninstalled, otherwise fixes cannot reach long-lived sessions.
 self.addEventListener('install', (event) => {
-    event.waitUntil(
-        caches.open(CACHE_NAME).then(async (cache) => {
+    event.waitUntil((async () => {
+        try {
+            const cache = await caches.open(CACHE_NAME);
             console.log('[ServiceWorker] Precaching app shell assets...');
-            for (const asset of PRECACHE_ASSETS) {
-                try {
-                    await cache.add(asset);
-                } catch (err) {
-                    console.warn(`[ServiceWorker] Could not precache ${asset}:`, err);
+            const results = await Promise.allSettled(
+                PRECACHE_ASSETS.map((asset) => cache.add(asset))
+            );
+            results.forEach((result, index) => {
+                if (result.status === 'rejected') {
+                    console.warn(`[ServiceWorker] Could not precache ${PRECACHE_ASSETS[index]}:`, result.reason);
                 }
-            }
-        }).then(() => self.skipWaiting())
-    );
+            });
+        } catch (err) {
+            console.warn('[ServiceWorker] Precache unavailable:', err);
+        }
+
+        if (typeof self.skipWaiting === 'function') {
+            await self.skipWaiting();
+        }
+    })());
 });
 
 // Activate: clean up outdated caches and claim clients immediately

@@ -10,13 +10,21 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+    concurrency:
+      group: ci-${{ github.workflow }}-${{ github.ref }}-${{ matrix.node }}
+      cancel-in-progress: true
     steps:
       - name: Check out source
         uses: actions/checkout@v4
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ matrix.node }}
           cache: npm
       - name: Install locked dependencies
         run: npm ci

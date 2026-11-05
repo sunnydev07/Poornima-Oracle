@@ -192,7 +192,6 @@ export async function handleSwitchConversation(id) {
         state.conversationHistory = state.activeConversation.messages;
         safeStorageSet(ACTIVE_CONV_STORAGE_KEY, id);
         state.chatStarted = conv.messages.length > 0;
-        state.messageCount = conv.messages.length;
         state.isLoading = false;
         stopSpeechRecognition();
         stopCurrentSpeech();
@@ -264,7 +263,6 @@ export async function startNewChat() {
     stopSpeechRecognition();
     stopCurrentSpeech();
     state.chatStarted = false;
-    state.messageCount = 0;
     state.isLoading = false;
 
     state.activeConversation = {

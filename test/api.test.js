@@ -1,10 +1,8 @@
 /**
- * Phase 2 test suite (not part of `npm test`).
+ * API integration tests.
  *
- * These tests require a `createApp({...})` factory with injectable providers and
- * a non-listening module export. The current server starts listening at import
- * time, so this file is quarantined behind `npm run test:api` until that
- * refactor lands.
+ * These tests exercise the `createApp({...})` factory with injectable providers
+ * and the non-listening module export exposed by `server.js`.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -12,6 +10,17 @@ const http = require('node:http');
 const { AsyncLocalStorage } = require('node:async_hooks');
 const { once } = require('node:events');
 const { createApp, createTimeoutFetch } = require('../server');
+
+// The API suite must stay offline. Calendar grounding normally refreshes live
+// Google Calendar feeds; provide a deterministic non-empty context instead.
+// An empty context would trigger the knowledge-gap fallback router, which can
+// make live provider calls.
+function createTestApp(options = {}) {
+  return createApp({
+    calendarContextForPrompt: async () => 'Academic calendar: offline test context. Mid-term exams begin 2026-11-16.',
+    ...options,
+  });
+}
 
 function parseSseEvents(body) {
   return body
@@ -111,7 +120,7 @@ test('chat preserves literal text and returns identical streamed, final, and cac
       };
     },
   };
-  const app = createApp({
+  const app = createTestApp({
     ai: mockAi,
     pineconeIndex: mockPineconeIndex,
     missingEnvVars: [],
@@ -172,7 +181,7 @@ test('chat preserves literal text and returns identical streamed, final, and cac
 });
 
 test('API returns stable JSON for malformed and oversized requests and tolerates untrusted XFF', async (t) => {
-  const app = createApp({
+  const app = createTestApp({
     ai: null,
     pineconeIndex: null,
     missingEnvVars: [],
@@ -223,7 +232,7 @@ test('API returns stable JSON for malformed and oversized requests and tolerates
 });
 
 test('feedback validates bounded fields, rate limits submissions, and never logs student text', async (t) => {
-  const app = createApp({
+  const app = createTestApp({
     ai: null,
     pineconeIndex: null,
     missingEnvVars: [],
@@ -282,7 +291,7 @@ test('feedback validates bounded fields, rate limits submissions, and never logs
 
 test('cache evicts the oldest entry at its configured bound', async (t) => {
   let generationCount = 0;
-  const app = createApp({
+  const app = createTestApp({
     ai: {
       models: {
         async embedContent() { return { embeddings: [{ values: [1] }] }; },
@@ -316,7 +325,7 @@ test('cache evicts the oldest entry at its configured bound', async (t) => {
 });
 
 test('CORS only allows configured browser origins', async (t) => {
-  const app = createApp({
+  const app = createTestApp({
     ai: null,
     pineconeIndex: null,
     missingEnvVars: [],
@@ -356,7 +365,7 @@ test('answer deadline remains active through slow stream consumption', async (t)
       markProviderAbort();
     }
   );
-  const app = createApp({
+  const app = createTestApp({
     ...providers,
     missingEnvVars: [],
     config: { answerTimeoutMs: 80, answerIdleTimeoutMs: 1000 },
@@ -389,7 +398,7 @@ test('provider throttling returns 429 and generic upstream 400 is not called an 
       },
     },
   };
-  const app = createApp({
+  const app = createTestApp({
     ai: mockAi,
     pineconeIndex: { async query() { return { matches: [] }; } },
     missingEnvVars: [],
@@ -431,7 +440,7 @@ test('upstream abort is classified as timeout and is not retried', async (t) => 
       },
     },
   };
-  const app = createApp({
+  const app = createTestApp({
     ai: mockAi,
     pineconeIndex: { async query() { throw new Error('Pinecone should not be reached.'); } },
     missingEnvVars: [],
@@ -460,7 +469,7 @@ test('concurrency cap rejects excess provider generations', async (t) => {
     () => markGenerationStarted(),
     () => markProviderAbort()
   );
-  const app = createApp({
+  const app = createTestApp({
     ...providers,
     missingEnvVars: [],
     config: {
@@ -537,7 +546,7 @@ test('disconnect during retrieval aborts the request-scoped vector query', async
   let generateCalls = 0;
   const queryStarted = new Promise((resolve) => { markQueryStarted = resolve; });
   const queryAborted = new Promise((resolve) => { markQueryAborted = resolve; });
-  const app = createApp({
+  const app = createTestApp({
     ai: {
       models: {
         async embedContent() { return { embeddings: [{ values: [1] }] }; },
@@ -589,7 +598,7 @@ test('client disconnect aborts the provider stream', async (t) => {
     () => markGenerationStarted(),
     () => markProviderAbort()
   );
-  const app = createApp({
+  const app = createTestApp({
     ...providers,
     missingEnvVars: [],
     config: { answerTimeoutMs: 2000, answerIdleTimeoutMs: 2000 },

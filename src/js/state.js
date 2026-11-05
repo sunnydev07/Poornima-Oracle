@@ -11,7 +11,6 @@ export const state = {
     activeAbortController: null,
     demoMode: typeof localStorage !== 'undefined' ? localStorage.getItem(DEMO_MODE_STORAGE_KEY) === 'true' : false,
     apiEndpoint: typeof window !== 'undefined' ? ensureApiEndpoint() : '',
-    messageCount: 0,
     chatStarted: false,
     isSidebarCollapsed: false,
     autoReadEnabled: typeof localStorage !== 'undefined' ? localStorage.getItem(AUTO_READ_STORAGE_KEY) === 'true' : false,
@@ -22,25 +21,3 @@ export const state = {
     isListening: false,
     scrollAffordanceTimer: null,
 };
-
-export function setApiEndpoint(endpoint) {
-    state.apiEndpoint = endpoint;
-}
-
-export function setDemoMode(isDemo) {
-    state.demoMode = isDemo;
-}
-
-export function setIsLoading(loading) {
-    state.isLoading = loading;
-}
-
-export function setActiveConversation(conv) {
-    state.activeConversation = conv;
-    state.conversationHistory = conv ? conv.messages : [];
-}
-
-export function resetActiveConversation(newConv) {
-    state.activeConversation = newConv;
-    state.conversationHistory = newConv.messages;
-}

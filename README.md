@@ -1,9 +1,9 @@
 # 🔮 Poornima Oracle — Campus RAG Assistant & AI Co-Pilot
 
-[![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-20+-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Express](https://img.shields.io/badge/Express-4.21-000000?style=flat-square&logo=express&logoColor=white)](https://expressjs.com/)
 [![Pinecone](https://img.shields.io/badge/Pinecone-VectorDB-0052FF?style=flat-square)](https://www.pinecone.io/)
-[![Google Gemini](https://img.shields.io/badge/Gemini-2.0--Flash-4285F4?style=flat-square&logo=google&logoColor=white)](https://ai.google.dev/)
+[![Google Gemini](https://img.shields.io/badge/Gemini-3.5--Flash-4285F4?style=flat-square&logo=google&logoColor=white)](https://ai.google.dev/)
 [![MCP](https://img.shields.io/badge/Model%20Context%20Protocol-SDK%201.30-purple?style=flat-square)](https://modelcontextprotocol.io/)
 [![Tailwind CSS](https://img.shields.io/badge/TailwindCSS-3.4-38B2AC?style=flat-square&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
 [![PWA Ready](https://img.shields.io/badge/PWA-Installable-blueviolet?style=flat-square&logo=pwa&logoColor=white)](https://web.dev/progressive-web-apps/)
@@ -91,8 +91,8 @@ It grounds conversational AI in verified institutional knowledge, official circu
              |                    |                                       |                    |
              v                    v                                       v                    v
   +--------------------+  +--------------------------------+  +--------------------+  +--------------------+
-  | Pinecone Vector DB |  |      Google Gemini 2.0         |  |   Dual Fallback    |  |    MCP Manager     |
-  |  (768-dim Vectors) |  |   (gemini-2.0-flash Core)      |  |     Router         |  | & Tool Dispatcher  |
+  | Pinecone Vector DB |  |      Google Gemini 3.5         |  |   Dual Fallback    |  |    MCP Manager     |
+  |  (768-dim Vectors) |  |   (gemini-3.5-flash Core)      |  |     Router         |  | & Tool Dispatcher  |
   |                    |  +--------------------------------+  |                    |  |                    |
   | Namespaces:        |                  |                   | - OpenRouter (Llama|  | - Web Search (DDG) |
   | - __default__      |                  | (low score/429)   |   3.3 70B Free)    |  | - Web Scraper      |
@@ -162,7 +162,7 @@ Poornima-Oracle/
 ## 🚀 Quick Start
 
 ### 1. Prerequisites
-- **Node.js**: v18.0.0 or higher
+- **Node.js**: v20.0.0 or higher
 - **Pinecone Account**: [app.pinecone.io](https://app.pinecone.io)
 - **Google AI Studio Key**: [aistudio.google.com](https://aistudio.google.com/app/apikey)
 
@@ -180,10 +180,13 @@ cp .env.example .env
 ```
 Populate your `.env` with your API credentials (refer to the [Configuration](#️-environment-configuration) section).
 
-### 4. Build Styles & Launch Server
+### 4. Build Styles, Test & Launch Server
 ```bash
 # Verify syntax across all modules
 npm run check
+
+# Run the offline unit suite (API contract suite is included)
+npm test
 
 # Start the local development server
 npm run dev
@@ -198,20 +201,32 @@ Open [http://localhost:3001](http://localhost:3001) in your browser.
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `PORT` | Optional | `3001` | HTTP server listening port |
-| `CORS_ORIGIN` | Optional | `*` | Allowed CORS origins (comma-separated for multiple) |
-| `GEMINI_API_KEY` | **Required** | — | Google Gemini API Key |
-| `GEMINI_MODEL` | Optional | `gemini-2.0-flash` | Gemini model for conversational RAG |
-| `GEMINI_EMBEDDING_MODEL` | Optional | `gemini-embedding-001` | Embedding model for vector generation (768-dim) |
+| `CORS_ORIGIN` | Optional | `*` (all origins) | Comma-separated list of allowed browser origins; set this in production |
+| `TRUST_PROXY_HOPS` | Optional | `0` | Trusted reverse-proxy hops used to derive the client IP. Keep `0` unless a trusted proxy overwrites `X-Forwarded-For` |
+| `GEMINI_API_KEY` | **Required** | — | Google Gemini API key |
+| `GEMINI_MODEL` | Optional | `gemini-3.5-flash` | Primary Gemini model for conversational RAG |
+| `GEMINI_EMBEDDING_MODEL` | Optional | `gemini-embedding-001` | Embedding model for vector generation (768 dimensions) |
 | `PINECONE_API_KEY` | **Required** | — | Pinecone API authentication key |
 | `PINECONE_INDEX_NAME` | **Required** | `poornima-oracle` | Target Pinecone vector index name |
 | `PINECONE_NAMESPACE` | Optional | `__default__` | Namespace for core institutional documents |
-| `RATE_LIMIT_WINDOW_MS` | Optional | `900000` (15m) | Rate limiting evaluation window in ms |
-| `CHAT_RATE_LIMIT_MAX` | Optional | `20` | Maximum queries permitted per IP per window |
+| `RATE_LIMIT_WINDOW_MS` | Optional | `900000` (15m) | Chat rate-limiting window in ms |
+| `CHAT_RATE_LIMIT_MAX` | Optional | `20` | Maximum chat queries permitted per client per window |
+| `FEEDBACK_RATE_LIMIT_MAX` | Optional | `30` | Maximum feedback submissions per client per window |
+| `FEEDBACK_RATE_LIMIT_WINDOW_MS` | Optional | `900000` (15m) | Feedback rate-limiting window in ms |
+| `REQUEST_TIMEOUT_MS` | Optional | `90000` | Overall request deadline, including retrieval and streaming |
+| `ANSWER_IDLE_TIMEOUT_MS` | Optional | `30000` | Maximum gap allowed between streamed tokens |
+| `MAX_CONCURRENT_GENERATIONS` | Optional | `5` | Concurrent provider streams before new chats receive HTTP 429 |
+| `CACHE_MAX_KEYS` | Optional | `1000` | Maximum number of cached answers |
 | `RAG_TOP_K` | Optional | `6` | Number of vector chunks retrieved per query |
 | `RAG_MIN_SCORE` | Optional | `0.35` | Minimum cosine similarity score threshold |
-| `ADMIN_API_KEY` | Optional | — | Secret token for triggering `/api/sync-notices` |
-| `NOTICE_SYNC_CRON` | Optional | `30 0 * * *` | Cron schedule for automatic notice crawl (6:00 AM IST) |
+| `RAG_REQUEST_TIMEOUT_MS` | Optional | `15000` | Per-request Gemini/Pinecone timeout in ms |
+| `RAG_REQUEST_RETRIES` | Optional | `2` | Retries for transient upstream failures (0–5) |
+| `QUERY_CACHE_TTL_SECONDS` | Optional | `3600` | Answer cache lifetime in seconds |
+| `ADMIN_API_KEY` | Optional | — | Secret required by `POST /api/sync-notices` and `GET /api/test-models`; admin endpoints return 503 when unset |
+| `NOTICE_SYNC_CRON` | Optional | `30 0 * * *` | Cron schedule for automatic notice crawl (server local time; `30 0 * * *` = 06:00 IST on a UTC host) |
 | `NOTICE_SYNC_ENABLED` | Optional | `true` | Enable or disable the background sync cron |
+| `ENABLE_PDF_EXTRACTION` | Optional | `true` | Extract text from linked PDF circulars during notice ingestion |
+| `PDF_CONCURRENCY` | Optional | `2` | Concurrent PDF downloads during ingestion |
 | `FALLBACK_ENABLED` | Optional | `true` | Toggle the secondary cloud fallback system |
 | `OPENROUTER_API_KEY` | Optional | — | Tier 1 Fallback: OpenRouter API Key |
 | `OPENROUTER_MODEL` | Optional | `meta-llama/llama-3.3-70b-instruct:free` | Model name for Tier 1 fallback |
@@ -219,6 +234,8 @@ Open [http://localhost:3001](http://localhost:3001) in your browser.
 | `OLLAMA_API_KEY` | Optional | — | API key for authenticated cloud Ollama hosts |
 | `OLLAMA_CLOUD_MODEL` | Optional | `nemotron-3-nano:30b` | Model name for Tier 2 fallback |
 | `TAVILY_API_KEY` | Optional | — | Optional search key (DuckDuckGo works without keys) |
+
+> **Security:** `.env` is git-ignored. Never commit real keys. If a key was ever committed, rotate it in the provider console and redeploy; deleting the file is not enough because git history retains it.
 
 ---
 
@@ -242,8 +259,8 @@ Streams responses using **Server-Sent Events (SSE)**.
 {
   "message": "When are the mid-term examinations for B.Tech Semester 4?",
   "history": [
-    { "role": "user", "text": "Hi" },
-    { "role": "model", "text": "Hello! How can I assist you with Poornima campus information today?" }
+    { "role": "user", "content": "Hi" },
+    { "role": "assistant", "content": "Hello! How can I assist you with Poornima campus information today?" }
   ],
   "profile": {
     "college": "PU",
@@ -253,6 +270,10 @@ Streams responses using **Server-Sent Events (SSE)**.
   }
 }
 ```
+
+`message` is limited to 2,000 characters; up to 8 prior turns are accepted (2,000 characters each, `role` must be `user` or `assistant`). The most recent four turns are used for grounding. The request body must not exceed 32 KB.
+
+**SSE events:** `sources`, `token`, `done`, `error`, plus optional `status`, `tool_call`, and `tool_result`. The terminal `done` event carries the final `answer` and `sources`; a cached answer additionally reports `cached: true`.
 
 ### 3. Academic Calendar & Deadlines
 ```http
@@ -265,11 +286,12 @@ Retrieves structured academic events, examination schedules, submission deadline
   - `daysAhead`: Integer days to look ahead (default: `90`)
   - `limit`: Max items to return (1–100, default: `25`)
 
-### 4. Model Connectivity Diagnostics
+### 4. Model Connectivity Diagnostics (Admin)
 ```http
 GET /api/test-models
+x-admin-key: <your_ADMIN_API_KEY>
 ```
-Validates Gemini API key credentials and tests available model candidates (`gemini-2.0-flash`, `gemini-1.5-flash`, etc.).
+Validates Gemini API key credentials and tests the configured model candidates. Returns `503` when `ADMIN_API_KEY` is not configured and `401` for a missing or invalid key.
 
 ### 5. Automated Notice Ingestion (Admin)
 ```http
@@ -289,11 +311,14 @@ POST /api/feedback
 Content-Type: application/json
 
 {
-  "messageId": "msg_123456",
-  "rating": 1,
-  "comment": "Accurate details regarding exam timings."
+  "messageId": "assistant-123456",
+  "rating": "up",
+  "question": "When are the mid-term examinations?",
+  "answer": "The examination schedule is published on the academic calendar.",
+  "sources": [{ "id": "calendar-1", "title": "Academic Calendar", "url": "https://poornima.edu.in" }]
 }
 ```
+`rating` must be `up` or `down`. Answers are limited to 12,000 characters and each source title to 2,048 characters. Student question and answer text is never written to server logs.
 
 ---
 
@@ -302,32 +327,41 @@ Content-Type: application/json
 | Command | Action |
 |---|---|
 | `npm run dev` | Start the Express backend server with `node server.js` |
+| `npm test` | Run the offline unit + API contract suites under `test/` |
+| `npm run test:api` | Run only the `test/api.test.js` contract suite against an in-process `createApp()` factory |
 | `npm run build:css` | Compile and minify Tailwind CSS from `tailwind.input.css` to `styles.css` |
 | `npm run check` | Run static node syntax checks across all backend, crawler, service, and frontend scripts |
+| `npm run check:css` | Rebuild CSS and fail if the committed `styles.css` is stale |
+| `npm run check:client` | Validate inline client-script invariants |
 | `npm run start:prod` | Run the application in production mode using PM2 process manager |
 | `npm run sync:notices` | Manually run the notice crawler and PDF ingestion pipeline |
 | `npm run sync:notices:dry` | Execute the notice crawler in dry-run mode (no vector upserts) |
-| `npm run test:pinecone` | Verify Pinecone vector index connection and query latency |
-| `npm run test:pdf` | Test circular PDF download and table parsing |
+| `npm run test:pinecone` | Verify Pinecone vector index connection and query latency (requires `.env`) |
+| `npm run test:pdf` | Test circular PDF download and table parsing (requires network) |
 | `npm run test:calendar` | Test academic calendar filtering and upcoming event extraction |
 
 ---
 
 ## 🧪 Testing & Diagnostics
 
-Verify all subsystem components prior to production deployment:
+The offline suites need no network or credentials:
 
 ```bash
-# 1. Test syntax integrity
+# Static syntax gate across every server and client module
 npm run check
 
-# 2. Test Pinecone vector database connection
+# Unit + API contract suites (uses mocked providers)
+npm test
+
+# Verify the committed stylesheet matches tailwind.input.css
+npm run check:css
+```
+
+Live diagnostics require a populated `.env`:
+
+```bash
 npm run test:pinecone
-
-# 3. Test PDF parser on official circulars
 npm run test:pdf
-
-# 4. Test calendar filtering engine
 npm run test:calendar
 ```
 
@@ -336,7 +370,7 @@ npm run test:calendar
 ## 🌐 Deployment
 
 ### Frontend (GitHub Pages)
-The static frontend is configured with a GitHub Actions workflow in [`.github/workflows/static.yml`](file:///c:/Users/sunny/Desktop/CO-Founder/poornima-oracle/Poornima-Oracle/.github/workflows/static.yml). Every push to `main` automatically deploys the frontend directly to GitHub Pages.
+The static frontend is deployed by [`.github/workflows/static.yml`](.github/workflows/static.yml). Every push to `main` publishes `index.html`, `styles.css`, and `src/` to GitHub Pages.
 
 ### Backend (Cloud Platforms / PM2)
 The backend can be hosted on **Render**, **Railway**, **Google Cloud Run**, or any Linux VPS:
@@ -349,7 +383,7 @@ npm run start:prod
 pm2 logs poornima-oracle
 ```
 
-Make sure to set the environment variables in your hosting dashboard and configure `CORS_ORIGIN` to match your frontend domain.
+Set every required environment variable in the hosting dashboard, set `CORS_ORIGIN` to the deployed frontend origin, and leave `TRUST_PROXY_HOPS=0` unless a trusted proxy is known to overwrite `X-Forwarded-For`. On Render, set the health check to `GET /api/health`.
 
 ---
 

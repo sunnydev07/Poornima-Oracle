@@ -7,6 +7,9 @@
     "url": "https://github.com/sunnydev07/Poornima-Oracle.git"
   },
   "main": "server.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "build:css": "tailwindcss -i ./tailwind.input.css -o ./styles.css --minify",
     "dev": "node server.js",
@@ -15,7 +18,7 @@
     "check": "node --check server.js && node --check sw.js && node --check chat-contract.js && node --check chat-request-owner.js && node --check services/fallback-router.js && node --check services/tool-dispatcher.js && node --check services/mcp-manager.js && node --check services/tools/web-search.js && node --check services/tools/web-scraper.js && node --check services/tools/portal-inspector.js && node --check services/tools/datetime-calculator.js && node --check services/crawler/pdf-extractor.js && node --check services/crawler/notice-sync.js && node --check services/calendar-service.js && node --check src/js/config.js && node --check src/js/state.js && node --check src/js/utils/chatExport.js && node --check src/js/profile/profileStore.js && node --check src/js/components/calendarWidget.js && node --check src/js/components/messageBubble.js && node --check src/js/components/sourceChips.js && node --check src/js/components/welcomeScreen.js && node --check src/js/components/sidebar.js && node --check src/js/components/modal.js && node --check src/js/pwa/installPrompt.js && node --check src/js/app.js && npm run check:client",
     "check:client": "node scripts/check-client.js",
     "check:css": "npm run build:css && git diff --exit-code -- styles.css",
-    "test": "node --test test/browser-modules.test.js test/chat-contract.test.js test/chat-request-owner.test.js",
+    "test": "node --test test/browser-modules.test.js test/chat-contract.test.js test/chat-request-owner.test.js test/api.test.js test/notice-sync.test.js",
     "test:api": "node --test test/api.test.js",
     "test:pinecone": "node test-pinecone.js",
     "test:pdf": "node test-pdf-extractor.js",

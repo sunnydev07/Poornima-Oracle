@@ -14,17 +14,12 @@ import {
 } from './utils/dom.js';
 import { createStreamRenderer } from './utils/markdown.js';
 import { ClickSpark } from './components/sparkCanvas.js';
-import {
-    initializeVoiceFeatures,
-    toggleSpeechRecognition,
-    stopSpeechRecognition,
-} from './audio/speechRecognition.js';
+import { initializeVoiceFeatures, toggleSpeechRecognition } from './audio/speechRecognition.js';
 import {
     toggleAutoRead,
     toggleMessageSpeech,
     readAssistantMessage,
     maybeAutoReadAssistantMessage,
-    stopCurrentSpeech,
 } from './audio/speechSynthesizer.js';
 import {
     showApiModal,
@@ -186,7 +181,6 @@ export async function sendMessage(options = {}) {
         state.chatStarted = true;
     }
 
-    state.messageCount++;
     state.isLoading = true;
     chatContainer?.setAttribute('aria-busy', 'true');
     const chatStatus = document.getElementById('chatStatus');
@@ -445,7 +439,6 @@ window.addEventListener('load', async () => {
                     state.activeConversation = conv;
                     state.conversationHistory = state.activeConversation.messages;
                     state.chatStarted = true;
-                    state.messageCount = conv.messages.length;
                     safeStorageSet(ACTIVE_CONV_STORAGE_KEY, conv.id);
 
                     const chatContainer = document.getElementById('chatContainer');

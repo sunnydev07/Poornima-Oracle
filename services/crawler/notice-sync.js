@@ -46,6 +46,8 @@ const EMBED_DELAY_MS = 300; // Rate-limit courtesy delay between embedding batch
 const ENABLE_PDF_EXTRACTION = process.env.ENABLE_PDF_EXTRACTION !== 'false'; // Default: true
 const PDF_CONCURRENCY = Number.parseInt(process.env.PDF_CONCURRENCY || '2', 10);
 const MAX_CHUNKS_PER_NOTICE = 25; // Limit chunks per notice to avoid vector flooding
+const MAX_SLUG_LENGTH = 60; // Keep deterministic chunk IDs well under Pinecone's ID limit
+const URL_HASH_LENGTH = 12; // Hex chars of SHA-256 used to disambiguate same-title notices
 
 /**
  * Firestore REST API endpoints for Poornima University (Angular CSR).
@@ -75,11 +77,27 @@ const PCE_HTML_SOURCES = [
 ];
 
 // ---------------------------------------------------------------------------
-// In-memory deduplication cache (persisted per-run; could be file-backed)
+// In-memory deduplication cache (per-process; backed by deterministic IDs)
 // ---------------------------------------------------------------------------
 
-/** @type {Set<string>} SHA-256 hashes of previously processed content */
+/**
+ * SHA-256 hashes of notices whose vectors were ALL upserted successfully.
+ *
+ * Hashes are deliberately NOT added before embedding/upsert. A transient
+ * failure must leave the notice unmarked so the next run (same process or a
+ * later cron run) retries it instead of silently losing content.
+ *
+ * @type {Set<string>}
+ */
 const processedHashes = new Set();
+
+/**
+ * Clear the in-memory dedupe set. Intended for tests; production relies on
+ * deterministic chunk IDs so re-processing is idempotent anyway.
+ */
+function resetProcessedHashes() {
+  processedHashes.clear();
+}
 
 // ---------------------------------------------------------------------------
 // Text Utilities
@@ -174,11 +192,98 @@ function categorize(text) {
  * Generate a URL-safe slug from a title string.
  */
 function slugify(text) {
-  return text
+  return String(text || '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
-    .slice(0, 80);
+    .slice(0, MAX_SLUG_LENGTH);
+}
+
+/**
+ * Normalize a notice URL so equivalent spellings produce the same chunk IDs.
+ * Fragments are dropped, host casing is normalized, and default ports are
+ * removed. Paths and query strings are preserved because they can identify
+ * genuinely different notices.
+ *
+ * @param {string} rawUrl
+ * @returns {string}
+ */
+function canonicalizeUrl(rawUrl) {
+  const input = typeof rawUrl === 'string' ? rawUrl.trim() : '';
+  if (!input) return '';
+
+  try {
+    const parsed = new URL(input);
+    parsed.hash = '';
+
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      parsed.hostname = parsed.hostname.toLowerCase();
+      if (
+        (parsed.protocol === 'http:' && parsed.port === '80') ||
+        (parsed.protocol === 'https:' && parsed.port === '443')
+      ) {
+        parsed.port = '';
+      }
+    }
+
+    return parsed.href;
+  } catch {
+    // Keep non-URL / malformed values deterministic without a fragment.
+    return input.split('#')[0];
+  }
+}
+
+/**
+ * Short deterministic digest of a notice's canonical URL.
+ *
+ * @param {string} url
+ * @returns {string} 12 lowercase hex characters
+ */
+function shortUrlHash(url) {
+  return contentHash(canonicalizeUrl(url)).slice(0, URL_HASH_LENGTH);
+}
+
+/**
+ * Build a deterministic, collision-resistant Pinecone vector ID.
+ *
+ * The URL digest prevents two same-title notices in one college from
+ * overwriting each other, while keeping IDs stable across runs so updates to
+ * the same URL overwrite idempotently.
+ *
+ * @param {object} notice
+ * @param {number} chunkIdx
+ * @returns {string}
+ */
+function buildChunkId(notice, chunkIdx) {
+  const college = slugify(notice.college) || 'unknown';
+  const titleSlug = slugify(notice.title) || 'notice';
+  return `notice-${college}-${titleSlug}-${shortUrlHash(notice.url)}-c${chunkIdx}`;
+}
+
+/**
+ * Hash the full canonical notice content used for deduplication.
+ *
+ * Includes title, URL, college, HTML/feed text, and extracted PDF text so that
+ * edits to any content-bearing field cause re-ingestion. A PDF-less HTML edit
+ * therefore changes the hash instead of being skipped forever.
+ *
+ * @param {object} notice
+ * @returns {string} SHA-256 hex digest
+ */
+function noticeContentHash(notice = {}) {
+  const fields = [
+    notice.title,
+    canonicalizeUrl(notice.url),
+    notice.college,
+    notice.text,
+    notice.pdfText,
+  ].map((value) => {
+    if (typeof value === 'string') return value;
+    return value == null ? '' : String(value);
+  });
+
+  // NUL separator prevents field-boundary ambiguity (e.g. "ab"+"c" vs "a"+"bc").
+  return contentHash(fields.join('\u0000'));
 }
 
 // ---------------------------------------------------------------------------
@@ -249,10 +354,13 @@ function firestoreFieldValue(field) {
 
 /**
  * Crawl PU notices via Firestore REST API.
- * Returns structured notice objects.
+ *
+ * @returns {Promise<{notices: object[], attempted: number, failed: number, errors: string[]}>}
+ *   Detailed per-collection results so a total outage is distinguishable from
+ *   a genuinely empty collection.
  */
 async function crawlPUFirestore() {
-  const allNotices = [];
+  const result = { notices: [], attempted: 0, failed: 0, errors: [] };
   const collections = [
     { endpoint: PU_FIRESTORE_ENDPOINTS.notices, type: 'notice' },
     { endpoint: PU_FIRESTORE_ENDPOINTS.calendars, type: 'calendar' },
@@ -260,6 +368,7 @@ async function crawlPUFirestore() {
   ];
 
   for (const { endpoint, type } of collections) {
+    result.attempted += 1;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), CRAWL_TIMEOUT_MS);
 
@@ -275,7 +384,10 @@ async function crawlPUFirestore() {
       });
 
       if (!response.ok) {
-        console.warn(`[NoticeCrawler] PU Firestore ${type} returned HTTP ${response.status}`);
+        const message = `PU Firestore ${type} returned HTTP ${response.status}`;
+        result.failed += 1;
+        result.errors.push(message);
+        console.warn(`[NoticeCrawler] ${message}`);
         continue;
       }
 
@@ -283,7 +395,7 @@ async function crawlPUFirestore() {
       const documents = data.documents || [];
 
       for (const doc of documents) {
-        if (allNotices.length >= MAX_NOTICES_PER_SOURCE) break;
+        if (result.notices.length >= MAX_NOTICES_PER_SOURCE) break;
 
         const fields = doc.fields || {};
         const title = cleanText(firestoreFieldValue(fields.text) || firestoreFieldValue(fields.title));
@@ -301,7 +413,7 @@ async function crawlPUFirestore() {
         if (type === 'calendar') textParts.push('[Academic Calendar]');
         if (type === 'news') textParts.push('[Campus News]');
 
-        allNotices.push({
+        result.notices.push({
           title,
           url: link || `https://poornima.edu.in/updates/`,
           text: textParts.join(' '),
@@ -315,17 +427,18 @@ async function crawlPUFirestore() {
 
       console.log(`[NoticeCrawler] PU Firestore ${type}: ${documents.length} documents found`);
     } catch (err) {
-      if (err.name === 'AbortError') {
-        console.warn(`[NoticeCrawler] PU Firestore ${type} timed out`);
-      } else {
-        console.warn(`[NoticeCrawler] PU Firestore ${type} error: ${err.message}`);
-      }
+      const message = err.name === 'AbortError'
+        ? `PU Firestore ${type} timed out`
+        : `PU Firestore ${type} error: ${err.message}`;
+      result.failed += 1;
+      result.errors.push(message);
+      console.warn(`[NoticeCrawler] ${message}`);
     } finally {
       clearTimeout(timeout);
     }
   }
 
-  return allNotices;
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -335,8 +448,11 @@ async function crawlPUFirestore() {
 /**
  * Crawl poornima.org/updates/ using Cheerio on server-rendered HTML.
  * Uses the exact CSS selectors discovered from the SSR page structure.
+ *
+ * @returns {Promise<{notices: object[], attempted: number, failed: number, errors: string[]}>}
  */
 async function crawlPCEUpdatesPage(url, college) {
+  const result = { notices: [], attempted: 1, failed: 0, errors: [] };
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), CRAWL_TIMEOUT_MS);
 
@@ -353,8 +469,11 @@ async function crawlPCEUpdatesPage(url, college) {
     });
 
     if (!response.ok) {
-      console.warn(`[NoticeCrawler] HTTP ${response.status} from ${url}`);
-      return [];
+      const message = `HTTP ${response.status} from ${url}`;
+      result.failed = 1;
+      result.errors.push(message);
+      console.warn(`[NoticeCrawler] ${message}`);
+      return result;
     }
 
     const html = await response.text();
@@ -473,14 +592,16 @@ async function crawlPCEUpdatesPage(url, college) {
     }
 
     console.log(`[NoticeCrawler] ${url}: ${notices.length} items extracted`);
-    return notices;
+    result.notices = notices;
+    return result;
   } catch (err) {
-    if (err.name === 'AbortError') {
-      console.warn(`[NoticeCrawler] Timeout crawling ${url}`);
-    } else {
-      console.warn(`[NoticeCrawler] Error crawling ${url}: ${err.message}`);
-    }
-    return [];
+    const message = err.name === 'AbortError'
+      ? `Timeout crawling ${url}`
+      : `Error crawling ${url}: ${err.message}`;
+    result.failed = 1;
+    result.errors.push(message);
+    console.warn(`[NoticeCrawler] ${message}`);
+    return result;
   } finally {
     clearTimeout(timeout);
   }
@@ -491,44 +612,68 @@ async function crawlPCEUpdatesPage(url, college) {
 // ---------------------------------------------------------------------------
 
 /**
+ * Merge a source result into the aggregate, deduplicating by title + URL.
+ *
+ * @param {{notices: object[], attempted: number, failed: number, errors: string[]}} aggregate
+ * @param {{notices: object[], attempted: number, failed: number, errors: string[]}} sourceResult
+ * @param {Set<string>} seenKeys
+ */
+function mergeCrawlResult(aggregate, sourceResult, seenKeys) {
+  aggregate.attempted += sourceResult.attempted;
+  aggregate.failed += sourceResult.failed;
+  aggregate.errors.push(...sourceResult.errors);
+
+  for (const notice of sourceResult.notices) {
+    const key = (notice.title + notice.url).toLowerCase();
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      aggregate.notices.push(notice);
+    }
+  }
+}
+
+/**
  * Crawl all configured sources (PU Firestore API + PCE/PIET HTML).
+ *
+ * @returns {Promise<{notices: object[], attempted: number, failed: number, errors: string[]}>}
+ *   Detailed results: `attempted > 0 && failed === attempted` means a total
+ *   outage, which callers must not report as a successful empty sync.
  */
 async function crawlAllSources() {
-  const allNotices = [];
+  const aggregate = { notices: [], attempted: 0, failed: 0, errors: [] };
   const seenKeys = new Set();
 
   // Source 1: PU via Firestore REST API
   try {
-    const puNotices = await crawlPUFirestore();
-    for (const notice of puNotices) {
-      const key = (notice.title + notice.url).toLowerCase();
-      if (!seenKeys.has(key)) {
-        seenKeys.add(key);
-        allNotices.push(notice);
-      }
-    }
+    mergeCrawlResult(aggregate, await crawlPUFirestore(), seenKeys);
   } catch (err) {
-    console.warn(`[NoticeCrawler] PU Firestore crawl failed: ${err.message}`);
+    mergeCrawlResult(aggregate, {
+      notices: [],
+      attempted: 1,
+      failed: 1,
+      errors: [`PU Firestore crawl failed: ${err.message}`],
+    }, seenKeys);
   }
 
   // Source 2: PCE/PIET via Cheerio HTML
   for (const source of PCE_HTML_SOURCES) {
     try {
-      const notices = await crawlPCEUpdatesPage(source.url, source.college);
-      for (const notice of notices) {
-        const key = (notice.title + notice.url).toLowerCase();
-        if (!seenKeys.has(key)) {
-          seenKeys.add(key);
-          allNotices.push(notice);
-        }
-      }
+      mergeCrawlResult(aggregate, await crawlPCEUpdatesPage(source.url, source.college), seenKeys);
     } catch (err) {
-      console.warn(`[NoticeCrawler] ${source.name} crawl failed: ${err.message}`);
+      mergeCrawlResult(aggregate, {
+        notices: [],
+        attempted: 1,
+        failed: 1,
+        errors: [`${source.name} crawl failed: ${err.message}`],
+      }, seenKeys);
     }
   }
 
-  console.log(`[NoticeCrawler] Total raw notices scraped: ${allNotices.length}`);
-  return allNotices;
+  console.log(
+    `[NoticeCrawler] Total raw notices scraped: ${aggregate.notices.length} ` +
+    `(sources attempted: ${aggregate.attempted}, failed: ${aggregate.failed})`
+  );
+  return aggregate;
 }
 
 // ---------------------------------------------------------------------------
@@ -592,26 +737,55 @@ async function generateEmbeddings(ai, texts) {
 /**
  * Upsert notice vectors into the Pinecone `notices` namespace.
  *
+ * Batch failures are collected rather than swallowed so the caller can return
+ * a truthful `success:false` and avoid marking failed notices as processed.
+ *
  * @param {import('@pinecone-database/pinecone').Index} index  - Pinecone index handle
  * @param {Array<{id: string, values: number[], metadata: object}>} vectors - Prepared vectors
- * @returns {Promise<{upsertedCount: number}>}
+ * @returns {Promise<{
+ *   upsertedCount: number,
+ *   failedBatches: number,
+ *   errors: string[],
+ *   failedBatchDetails: Array<{batchIndex: number, vectorIds: string[], error: string}>,
+ *   upsertedIds: Set<string>
+ * }>}
  */
 async function upsertToNoticesNamespace(index, vectors) {
   let totalUpserted = 0;
+  const errors = [];
+  const failedBatchDetails = [];
+  const upsertedIds = new Set();
 
   for (let i = 0; i < vectors.length; i += UPSERT_BATCH_SIZE) {
+    const batchIndex = Math.floor(i / UPSERT_BATCH_SIZE) + 1;
     const batch = vectors.slice(i, i + UPSERT_BATCH_SIZE);
 
     try {
       await index.namespace(NOTICES_NAMESPACE).upsert(batch);
       totalUpserted += batch.length;
-      console.log(`[NoticeCrawler] Upserted batch ${Math.floor(i / UPSERT_BATCH_SIZE) + 1}: ${batch.length} vectors`);
+      for (const vector of batch) {
+        if (vector && vector.id) upsertedIds.add(vector.id);
+      }
+      console.log(`[NoticeCrawler] Upserted batch ${batchIndex}: ${batch.length} vectors`);
     } catch (err) {
-      console.error(`[NoticeCrawler] Upsert batch failed: ${err.message}`);
+      const message = `Upsert batch ${batchIndex} failed: ${err.message}`;
+      errors.push(message);
+      failedBatchDetails.push({
+        batchIndex,
+        vectorIds: batch.map((vector) => vector.id),
+        error: err.message,
+      });
+      console.error(`[NoticeCrawler] ${message}`);
     }
   }
 
-  return { upsertedCount: totalUpserted };
+  return {
+    upsertedCount: totalUpserted,
+    failedBatches: failedBatchDetails.length,
+    errors,
+    failedBatchDetails,
+    upsertedIds,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -619,10 +793,46 @@ async function upsertToNoticesNamespace(index, vectors) {
 // ---------------------------------------------------------------------------
 
 /**
+ * Normalize the injectable crawl output to the detailed internal shape.
+ * Accepts either a plain notices array (legacy callers/tests) or the
+ * `{ notices, attempted, failed, errors }` object produced by crawlAllSources.
+ *
+ * @param {object[]|{notices?: object[], attempted?: number, failed?: number, errors?: string[]}} rawResult
+ * @returns {{notices: object[], attempted: number, failed: number, errors: string[]}}
+ */
+function normalizeCrawlResult(rawResult) {
+  if (Array.isArray(rawResult)) {
+    return {
+      notices: rawResult,
+      attempted: rawResult.length > 0 ? 1 : 0,
+      failed: 0,
+      errors: [],
+    };
+  }
+
+  if (rawResult && typeof rawResult === 'object') {
+    const notices = Array.isArray(rawResult.notices) ? rawResult.notices : [];
+    const attemptedValue = Number(rawResult.attempted);
+    const failedValue = Number(rawResult.failed);
+    const failed = Number.isFinite(failedValue) ? failedValue : 0;
+    const attempted = Number.isFinite(attemptedValue)
+      ? attemptedValue
+      : Math.max(notices.length > 0 ? 1 : 0, failed);
+    const errors = Array.isArray(rawResult.errors)
+      ? rawResult.errors.map((error) => (typeof error === 'string' ? error : String(error)))
+      : [];
+
+    return { notices, attempted, failed, errors };
+  }
+
+  throw new TypeError('crawl injection must return an array or a detailed crawl result object');
+}
+
+/**
  * Full notice synchronization pipeline.
  *
  * 1. Crawl PU (Firestore API) + PCE/PIET (Cheerio HTML)
- * 2. Deduplicate by content hash
+ * 2. Deduplicate by content hash (only after a fully successful upsert)
  * 3. Chunk text into embeddable segments
  * 4. Generate Gemini embeddings
  * 5. Upsert into Pinecone `notices` namespace
@@ -631,6 +841,8 @@ async function upsertToNoticesNamespace(index, vectors) {
  * @param {GoogleGenAI}  [options.ai]             - Pre-initialized AI client
  * @param {import('@pinecone-database/pinecone').Index} [options.pineconeIndex] - Pre-initialized Pinecone index
  * @param {boolean}      [options.dryRun=false]   - If true, skip the actual upsert
+ * @param {Function|object[]|{notices: object[], attempted: number, failed: number, errors: string[]}} [options.crawl]
+ *   Injectable crawler (function) or crawl result. Defaults to crawlAllSources.
  * @returns {Promise<{success: boolean, noticesFound: number, chunksProcessed: number, vectorsUpserted: number, errors: string[]}>}
  */
 async function syncNotices(options = {}) {
@@ -641,6 +853,40 @@ async function syncNotices(options = {}) {
   console.log('[NoticeCrawler] Starting Notice Sync Pipeline (RAG 2.0)');
   console.log('='.repeat(60));
 
+  // --- Step 1: Crawl ---
+  let crawlResult;
+  try {
+    const crawl = options.crawl ?? crawlAllSources;
+    const rawResult = typeof crawl === 'function' ? await crawl() : crawl;
+    crawlResult = normalizeCrawlResult(rawResult);
+  } catch (err) {
+    errors.push(`Crawl failed: ${err.message}`);
+    return { success: false, noticesFound: 0, chunksProcessed: 0, vectorsUpserted: 0, errors };
+  }
+
+  let rawNotices = crawlResult.notices;
+  errors.push(...crawlResult.errors);
+
+  // A total outage is not a successful "0 notices" sync. Partial failures are
+  // allowed to continue so healthy sources still get ingested.
+  if (crawlResult.attempted > 0 && crawlResult.failed === crawlResult.attempted) {
+    const message = `All ${crawlResult.attempted} notice sources failed`;
+    errors.push(message);
+    console.error(`[NoticeCrawler] ${message}`);
+    return {
+      success: false,
+      noticesFound: rawNotices.length,
+      chunksProcessed: 0,
+      vectorsUpserted: 0,
+      errors,
+    };
+  }
+
+  if (rawNotices.length === 0) {
+    console.log('[NoticeCrawler] No notices found. Sync complete (nothing to ingest).');
+    return { success: true, noticesFound: 0, chunksProcessed: 0, vectorsUpserted: 0, errors };
+  }
+
   // --- Initialize clients (or use provided ones) ---
   let ai = options.ai;
   let pineconeIndex = options.pineconeIndex;
@@ -648,7 +894,8 @@ async function syncNotices(options = {}) {
   if (!ai) {
     const geminiKey = (process.env.GEMINI_API_KEY || '').trim();
     if (!geminiKey) {
-      return { success: false, noticesFound: 0, chunksProcessed: 0, vectorsUpserted: 0, errors: ['GEMINI_API_KEY not configured'] };
+      errors.push('GEMINI_API_KEY not configured');
+      return { success: false, noticesFound: rawNotices.length, chunksProcessed: 0, vectorsUpserted: 0, errors };
     }
     ai = new GoogleGenAI({ apiKey: geminiKey });
   }
@@ -657,24 +904,11 @@ async function syncNotices(options = {}) {
     const pineconeKey = (process.env.PINECONE_API_KEY || '').trim();
     const indexName = (process.env.PINECONE_INDEX_NAME || '').trim();
     if (!pineconeKey || !indexName) {
-      return { success: false, noticesFound: 0, chunksProcessed: 0, vectorsUpserted: 0, errors: ['PINECONE_API_KEY or PINECONE_INDEX_NAME not configured'] };
+      errors.push('PINECONE_API_KEY or PINECONE_INDEX_NAME not configured');
+      return { success: false, noticesFound: rawNotices.length, chunksProcessed: 0, vectorsUpserted: 0, errors };
     }
     const pc = new Pinecone({ apiKey: pineconeKey });
     pineconeIndex = pc.index(indexName);
-  }
-
-  // --- Step 1: Crawl ---
-  let rawNotices;
-  try {
-    rawNotices = await crawlAllSources();
-  } catch (err) {
-    errors.push(`Crawl failed: ${err.message}`);
-    return { success: false, noticesFound: 0, chunksProcessed: 0, vectorsUpserted: 0, errors };
-  }
-
-  if (rawNotices.length === 0) {
-    console.log('[NoticeCrawler] No notices found. Sync complete (nothing to ingest).');
-    return { success: true, noticesFound: 0, chunksProcessed: 0, vectorsUpserted: 0, errors };
   }
 
   // --- Step 1.5: Enrich with PDF Circular Content ---
@@ -691,13 +925,17 @@ async function syncNotices(options = {}) {
 
   // --- Step 2: Deduplicate & Chunk ---
   const chunks = [];
+  const noticeRecords = [];
+  const seenThisRun = new Set();
 
   for (const notice of rawNotices) {
-    const hash = contentHash(notice.title + notice.url + (notice.pdfText ? contentHash(notice.pdfText) : ''));
-    if (processedHashes.has(hash)) {
+    const hash = noticeContentHash(notice);
+    if (processedHashes.has(hash) || seenThisRun.has(hash)) {
       continue;
     }
-    processedHashes.add(hash);
+    // Mark only in `seenThisRun`; the module-level set is updated after a
+    // fully successful upsert so failures are retried on the next run.
+    seenThisRun.add(hash);
 
     let fullText;
     if (notice.pdfExtracted && notice.pdfText) {
@@ -710,12 +948,15 @@ async function syncNotices(options = {}) {
     if (textChunks.length > MAX_CHUNKS_PER_NOTICE) {
       textChunks = textChunks.slice(0, MAX_CHUNKS_PER_NOTICE);
     }
+    if (textChunks.length === 0) continue;
+
+    const record = { hash, chunks: [] };
 
     for (let chunkIdx = 0; chunkIdx < textChunks.length; chunkIdx++) {
-      const chunkId = `notice-${notice.college.toLowerCase()}-${slugify(notice.title)}-c${chunkIdx}`;
-      chunks.push({
-        id: chunkId,
+      const chunk = {
+        id: buildChunkId(notice, chunkIdx),
         text: textChunks[chunkIdx],
+        embedded: false,
         metadata: {
           title: notice.title.slice(0, 200),
           url: notice.url,
@@ -730,8 +971,12 @@ async function syncNotices(options = {}) {
           hasPdfContent: Boolean(notice.pdfExtracted),
           ingestedAt: new Date().toISOString(),
         },
-      });
+      };
+      record.chunks.push(chunk);
+      chunks.push(chunk);
     }
+
+    noticeRecords.push(record);
   }
 
   const pdfEnrichedCount = rawNotices.filter((n) => n.pdfExtracted).length;
@@ -739,7 +984,14 @@ async function syncNotices(options = {}) {
 
   if (chunks.length === 0) {
     console.log('[NoticeCrawler] All notices were previously processed. Nothing new to ingest.');
-    return { success: true, noticesFound: rawNotices.length, chunksProcessed: 0, vectorsUpserted: 0, errors };
+    return {
+      success: true,
+      noticesFound: rawNotices.length,
+      pdfNoticesEnriched: pdfEnrichedCount,
+      chunksProcessed: 0,
+      vectorsUpserted: 0,
+      errors,
+    };
   }
 
   // --- Step 3: Generate Embeddings ---
@@ -749,13 +1001,21 @@ async function syncNotices(options = {}) {
     embeddings = await generateEmbeddings(ai, chunks.map((c) => c.text));
   } catch (err) {
     errors.push(`Embedding generation failed: ${err.message}`);
-    return { success: false, noticesFound: rawNotices.length, chunksProcessed: chunks.length, vectorsUpserted: 0, errors };
+    return {
+      success: false,
+      noticesFound: rawNotices.length,
+      pdfNoticesEnriched: pdfEnrichedCount,
+      chunksProcessed: chunks.length,
+      vectorsUpserted: 0,
+      errors,
+    };
   }
 
   // --- Step 4: Prepare vectors ---
   const vectors = [];
   for (let i = 0; i < chunks.length; i++) {
     if (embeddings[i] && Array.isArray(embeddings[i]) && embeddings[i].length === EMBEDDING_DIMENSIONS) {
+      chunks[i].embedded = true;
       vectors.push({
         id: chunks[i].id,
         values: embeddings[i],
@@ -766,6 +1026,7 @@ async function syncNotices(options = {}) {
     }
   }
 
+  const embeddingFailureCount = chunks.length - vectors.length;
   console.log(`[NoticeCrawler] Valid vectors: ${vectors.length}/${chunks.length}`);
 
   if (vectors.length === 0) {
@@ -781,13 +1042,28 @@ async function syncNotices(options = {}) {
         dryRun: true,
       };
     }
-    return { success: false, noticesFound: rawNotices.length, chunksProcessed: chunks.length, vectorsUpserted: 0, errors };
+    return {
+      success: false,
+      noticesFound: rawNotices.length,
+      pdfNoticesEnriched: pdfEnrichedCount,
+      chunksProcessed: chunks.length,
+      vectorsUpserted: 0,
+      errors,
+    };
   }
 
   // --- Step 5: Upsert to Pinecone ---
   if (options.dryRun) {
     console.log(`[NoticeCrawler] DRY RUN: Would upsert ${vectors.length} vectors to namespace '${NOTICES_NAMESPACE}'`);
-    return { success: true, noticesFound: rawNotices.length, chunksProcessed: chunks.length, vectorsUpserted: 0, errors, dryRun: true };
+    return {
+      success: true,
+      noticesFound: rawNotices.length,
+      pdfNoticesEnriched: pdfEnrichedCount,
+      chunksProcessed: chunks.length,
+      vectorsUpserted: 0,
+      errors,
+      dryRun: true,
+    };
   }
 
   let upsertResult;
@@ -795,7 +1071,29 @@ async function syncNotices(options = {}) {
     upsertResult = await upsertToNoticesNamespace(pineconeIndex, vectors);
   } catch (err) {
     errors.push(`Upsert failed: ${err.message}`);
-    return { success: false, noticesFound: rawNotices.length, chunksProcessed: chunks.length, vectorsUpserted: 0, errors };
+    return {
+      success: false,
+      noticesFound: rawNotices.length,
+      pdfNoticesEnriched: pdfEnrichedCount,
+      chunksProcessed: chunks.length,
+      vectorsUpserted: 0,
+      errors,
+    };
+  }
+
+  errors.push(...upsertResult.errors);
+
+  // Success-based dedupe: a notice is remembered only when every one of its
+  // chunks embedded AND landed in a successful Pinecone batch. Partial
+  // failures therefore leave the notice eligible for retry.
+  let markedCount = 0;
+  for (const record of noticeRecords) {
+    const allEmbedded = record.chunks.every((chunk) => chunk.embedded === true);
+    const allUpserted = record.chunks.every((chunk) => upsertResult.upsertedIds.has(chunk.id));
+    if (allEmbedded && allUpserted) {
+      processedHashes.add(record.hash);
+      markedCount += 1;
+    }
   }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -805,17 +1103,19 @@ async function syncNotices(options = {}) {
   console.log(`  PDFs enriched:      ${pdfEnrichedCount}`);
   console.log(`  Chunks processed:   ${chunks.length}`);
   console.log(`  Vectors upserted:   ${upsertResult.upsertedCount}`);
+  console.log(`  Notices marked:     ${markedCount}`);
   if (errors.length > 0) {
     console.log(`  Warnings:           ${errors.length}`);
   }
   console.log('='.repeat(60) + '\n');
 
   return {
-    success: true,
+    success: upsertResult.failedBatches === 0 && embeddingFailureCount === 0,
     noticesFound: rawNotices.length,
     pdfNoticesEnriched: pdfEnrichedCount,
     chunksProcessed: chunks.length,
     vectorsUpserted: upsertResult.upsertedCount,
+    failedBatches: upsertResult.failedBatches,
     errors,
   };
 }
@@ -851,4 +1151,12 @@ module.exports = {
   categorize,
   enrichNoticesWithPdfContent,
   NOTICES_NAMESPACE,
+  // Exposed for deterministic-ID / dedupe regression tests.
+  canonicalizeUrl,
+  shortUrlHash,
+  buildChunkId,
+  noticeContentHash,
+  normalizeCrawlResult,
+  upsertToNoticesNamespace,
+  resetProcessedHashes,
 };
