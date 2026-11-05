@@ -1663,7 +1663,7 @@ function createApp(options = {}) {
           fontSrc: ["'self'", 'https://fonts.gstatic.com'],
           connectSrc: [
             "'self'",
-            'https://poornima-oracle.onrender.com',
+            'https://poornima-oracle-api.onrender.com',
             ...(corsOrigins || []),
           ],
           imgSrc: ["'self'", 'data:', 'https:'],

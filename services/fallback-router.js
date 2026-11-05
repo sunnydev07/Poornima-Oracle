@@ -138,7 +138,7 @@ class FallbackRouter {
     // Tier 1: OpenRouter Free API
     this.openrouterApiKey = options.openrouterApiKey !== undefined ? options.openrouterApiKey : (process.env.OPENROUTER_API_KEY || '');
     this.openrouterModel = options.openrouterModel || process.env.OPENROUTER_MODEL || DEFAULT_OPENROUTER_MODEL;
-    this.openrouterSiteUrl = options.openrouterSiteUrl || process.env.OPENROUTER_SITE_URL || 'https://poornima-oracle.onrender.com';
+    this.openrouterSiteUrl = options.openrouterSiteUrl || process.env.OPENROUTER_SITE_URL || 'https://poornima-oracle-api.onrender.com';
     this.openrouterAppName = options.openrouterAppName || process.env.OPENROUTER_APP_NAME || 'Poornima Oracle Fallback Agent';
     this.openrouterTimeoutMs = Number.parseInt(process.env.OPENROUTER_TIMEOUT_MS, 10) || 12000;
     this.openrouterFallbackModels = OPENROUTER_FALLBACK_MODELS;

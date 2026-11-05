@@ -8,6 +8,7 @@
 [![Tailwind CSS](https://img.shields.io/badge/TailwindCSS-3.4-38B2AC?style=flat-square&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
 [![PWA Ready](https://img.shields.io/badge/PWA-Installable-blueviolet?style=flat-square&logo=pwa&logoColor=white)](https://web.dev/progressive-web-apps/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/sunnydev07/Poornima-Oracle)
 
 **Poornima Oracle** is a next-generation, RAG-powered intelligent campus co-pilot and automated document retrieval system engineered for the **Poornima Group of Colleges** — covering **Poornima University (PU)**, **Poornima College of Engineering (PCE)**, and **Poornima Institute of Engineering & Technology (PIET)**.
 
@@ -202,7 +203,7 @@ Open [http://localhost:3001](http://localhost:3001) in your browser.
 |---|---|---|---|
 | `PORT` | Optional | `3001` | HTTP server listening port |
 | `CORS_ORIGIN` | Optional | `*` (all origins) | Comma-separated list of allowed browser origins; set this in production |
-| `TRUST_PROXY_HOPS` | Optional | `0` | Trusted reverse-proxy hops used to derive the client IP. Keep `0` unless a trusted proxy overwrites `X-Forwarded-For` |
+| `TRUST_PROXY_HOPS` | Optional | `0` | Trusted reverse-proxy hops used to derive the client IP. Set to `1` on Render; keep `0` elsewhere |
 | `GEMINI_API_KEY` | **Required** | — | Google Gemini API key |
 | `GEMINI_MODEL` | Optional | `gemini-3.5-flash` | Primary Gemini model for conversational RAG |
 | `GEMINI_EMBEDDING_MODEL` | Optional | `gemini-embedding-001` | Embedding model for vector generation (768 dimensions) |
@@ -372,18 +373,32 @@ npm run test:calendar
 ### Frontend (GitHub Pages)
 The static frontend is deployed by [`.github/workflows/static.yml`](.github/workflows/static.yml). Every push to `main` publishes `index.html`, `styles.css`, and `src/` to GitHub Pages.
 
-### Backend (Cloud Platforms / PM2)
-The backend can be hosted on **Render**, **Railway**, **Google Cloud Run**, or any Linux VPS:
+### Backend (Render Blueprint)
+The repo ships a [`render.yaml`](render.yaml) Blueprint that provisions the production web service:
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/sunnydev07/Poornima-Oracle)
+
+1. Click the button and sign in to Render.
+2. Select the workspace and grant Render access to the repository when prompted.
+3. Enter `GEMINI_API_KEY` and `PINECONE_API_KEY` (copy them from your local `.env`); Render generates `ADMIN_API_KEY`.
+4. Apply the Blueprint and wait for the `/api/health` check to pass.
+5. The default service URL is `https://poornima-oracle-api.onrender.com`. The GitHub Pages frontend uses it by default, and browsers that cached the suspended URL are migrated automatically.
+
+The Blueprint sets `CORS_ORIGIN=https://sunnydev07.github.io` and `TRUST_PROXY_HOPS=1` because Render terminates TLS and overwrites `X-Forwarded-For`. The free plan sleeps after 15 minutes of inactivity; switch the service to the Starter plan for an always-warm instance.
+
+### Backend (Railway / Cloud Run / VPS)
+The backend also runs anywhere Node.js 20+ is available:
 
 ```bash
-# Production start via PM2
-npm run start:prod
+npm ci
+npm start
 
-# Check logs
+# Or keep it alive with PM2
+npm run start:prod
 pm2 logs poornima-oracle
 ```
 
-Set every required environment variable in the hosting dashboard, set `CORS_ORIGIN` to the deployed frontend origin, and leave `TRUST_PROXY_HOPS=0` unless a trusted proxy is known to overwrite `X-Forwarded-For`. On Render, set the health check to `GET /api/health`.
+Set every required environment variable in the hosting dashboard, set `CORS_ORIGIN` to the deployed frontend origin, and set the health check to `GET /api/health`.
 
 ---
 

@@ -18,6 +18,21 @@ test('shared chat contract exposes its bounded request builder to browser script
   assert.equal(JSON.stringify(payload), '{"message":"fees < 20000","history":[]}');
 });
 
+test('legacy Render endpoints migrate to the replacement backend', async () => {
+  const source = read('src/js/config.js');
+  const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
+  const config = await import(moduleUrl);
+
+  assert.equal(config.RENDER_BACKEND_ENDPOINT, `${config.RENDER_BACKEND_ORIGIN}/api/chat`);
+  assert.match(config.RENDER_BACKEND_ORIGIN, /^https:\/\/[a-z0-9-]+\.onrender\.com$/);
+  assert.equal(config.shouldMigrateStoredEndpoint('https://poornima-oracle.onrender.com/api/chat'), true);
+  assert.equal(config.shouldMigrateStoredEndpoint('https://poornima-oracle.onrender.com'), true);
+  assert.equal(config.shouldMigrateStoredEndpoint(`${config.RENDER_BACKEND_ORIGIN}/api/chat`), false);
+  assert.equal(config.shouldMigrateStoredEndpoint('https://custom.example/api/chat'), false);
+  assert.equal(config.shouldMigrateStoredEndpoint('   '), true);
+  assert.equal(config.shouldMigrateStoredEndpoint('https://sunnydev07.github.io/api/chat', true), true);
+});
+
 test('the app shell exposes spatial glass and accessible controls', () => {
   const html = read('index.html');
 

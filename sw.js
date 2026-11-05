@@ -1,9 +1,9 @@
 /**
- * Poornima Oracle - Service Worker (v4)
+ * Poornima Oracle - Service Worker (v6)
  * Provides offline caching, app-shell reliability, and instant load times.
  */
 
-const CACHE_NAME = 'poornima-oracle-v5';
+const CACHE_NAME = 'poornima-oracle-v6';
 
 const PRECACHE_ASSETS = [
     './',

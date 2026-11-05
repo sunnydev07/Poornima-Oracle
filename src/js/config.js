@@ -2,7 +2,27 @@
  * Poornima Oracle - Configuration & Constants
  */
 
-export const RENDER_BACKEND_ENDPOINT = 'https://poornima-oracle.onrender.com/api/chat';
+export const RENDER_BACKEND_ORIGIN = 'https://poornima-oracle-api.onrender.com';
+export const RENDER_BACKEND_ENDPOINT = `${RENDER_BACKEND_ORIGIN}/api/chat`;
+
+// The original Render service was suspended and can no longer be recovered.
+// Reset any browser that still has its URL saved in localStorage.
+const LEGACY_BACKEND_ORIGINS = new Set(['https://poornima-oracle.onrender.com']);
+
+export function isLegacyBackendEndpoint(endpoint) {
+    try {
+        return LEGACY_BACKEND_ORIGINS.has(new URL(endpoint).origin);
+    } catch {
+        return false;
+    }
+}
+
+export function shouldMigrateStoredEndpoint(storedEndpoint, githubPages = false) {
+    const normalized = typeof storedEndpoint === 'string' ? storedEndpoint.trim() : '';
+    if (!normalized) return true;
+    if (githubPages && normalized.includes('github.io')) return true;
+    return isLegacyBackendEndpoint(normalized);
+}
 
 export function isGitHubPages() {
     if (typeof window === 'undefined' || !window.location) return false;
@@ -221,13 +241,11 @@ export function ensureApiEndpoint() {
 
     const normalizedStoredEndpoint = typeof storedEndpoint === 'string' ? storedEndpoint.trim() : '';
 
-    // Auto-heal stale or broken endpoint:
-    // If running on GitHub Pages and stored endpoint points to github.io or is empty,
-    // automatically reset to the live Render backend.
-    const isStaleGitHubEndpoint = isGitHubPages() && normalizedStoredEndpoint && normalizedStoredEndpoint.includes('github.io');
-
+    // Auto-heal stale or broken endpoints: empty values, github.io URLs on
+    // GitHub Pages, and the suspended legacy Render service all reset to the
+    // current backend.
     let endpoint = normalizedStoredEndpoint;
-    if (!normalizedStoredEndpoint || isStaleGitHubEndpoint) {
+    if (shouldMigrateStoredEndpoint(normalizedStoredEndpoint, isGitHubPages())) {
         endpoint = getDefaultApiEndpoint();
         try {
             if (typeof localStorage !== 'undefined') {
@@ -244,12 +262,12 @@ export function ensureApiEndpoint() {
 export function getApiBaseUrl() {
     const endpoint = ensureApiEndpoint();
     try {
-        const baseHref = typeof window !== 'undefined' && window.location?.href ? window.location.href : 'https://poornima-oracle.onrender.com';
+        const baseHref = typeof window !== 'undefined' && window.location?.href ? window.location.href : RENDER_BACKEND_ORIGIN;
         const url = new URL(endpoint, baseHref);
         url.pathname = url.pathname.replace(/\/api\/chat\/?$/, '').replace(/\/chat\/?$/, '');
         return url.toString().replace(/\/$/, '');
     } catch {
-        return isGitHubPages() ? 'https://poornima-oracle.onrender.com' : '';
+        return isGitHubPages() ? RENDER_BACKEND_ORIGIN : '';
     }
 }
 
