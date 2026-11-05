@@ -3,12 +3,12 @@
  * Provides offline caching, app-shell reliability, and instant load times.
  */
 
-const CACHE_NAME = 'poornima-oracle-v4';
+const CACHE_NAME = 'poornima-oracle-v5';
 
 const PRECACHE_ASSETS = [
     './',
     './index.html',
-    './styles.css',
+    './styles.css?v=5',
     './manifest.json',
     './chat-contract.js',
     './chat-request-owner.js',
@@ -118,6 +118,29 @@ self.addEventListener('fetch', (event) => {
                     return new Response('Offline: Poornima Oracle is currently unavailable without an internet connection.', {
                         status: 503,
                         headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+                    });
+                })
+        );
+        return;
+    }
+
+    // Styles must match the current HTML. Revalidate CSS before serving cache so
+    // a deploy cannot pair new utility classes with an older cached stylesheet.
+    if (request.destination === 'style' || url.pathname.toLowerCase().endsWith('.css')) {
+        event.respondWith(
+            fetch(new Request(request, { cache: 'no-cache' }))
+                .then((networkResponse) => {
+                    if (networkResponse && networkResponse.status === 200) {
+                        const copy = networkResponse.clone();
+                        caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+                    }
+                    return networkResponse;
+                })
+                .catch(async () => {
+                    const cachedResponse = await caches.match(request);
+                    return cachedResponse || new Response('/* Stylesheet unavailable offline. */', {
+                        status: 503,
+                        headers: { 'Content-Type': 'text/css; charset=utf-8' }
                     });
                 })
         );
